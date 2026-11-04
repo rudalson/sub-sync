@@ -12,9 +12,10 @@ export const usePlayback = create<Playback>(() => ({ time: 0, duration: 0, playi
 
 let video: HTMLVideoElement | null = null
 let frame = 0
+let pendingPlayback: { time: number; rate: number } | null = null
 
 function tick() {
-  if (video) usePlayback.setState({ time: video.currentTime })
+  if (video && !pendingPlayback) usePlayback.setState({ time: video.currentTime })
   frame = requestAnimationFrame(tick)
 }
 
@@ -22,6 +23,21 @@ export function attachVideo(element: HTMLVideoElement | null) {
   video = element
   cancelAnimationFrame(frame)
   if (element) frame = requestAnimationFrame(tick)
+}
+
+/** Hold the saved position until the new video's metadata is available, including reopening the same video. */
+export function restorePlayback(playback: { time: number; rate: number }, duration: number) {
+  video?.pause()
+  pendingPlayback = { time: Math.min(playback.time, duration), rate: playback.rate }
+  usePlayback.setState({ ...pendingPlayback, duration, playing: false })
+}
+
+export function videoLoaded(element: HTMLVideoElement) {
+  const playback = pendingPlayback ?? { time: 0, rate: usePlayback.getState().rate }
+  pendingPlayback = null
+  element.currentTime = Math.min(playback.time, element.duration)
+  element.playbackRate = playback.rate
+  usePlayback.setState({ time: element.currentTime, duration: element.duration, rate: element.playbackRate, playing: false })
 }
 
 export function seek(time: number) {

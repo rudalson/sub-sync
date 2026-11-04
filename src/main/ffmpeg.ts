@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
+import { PEAKS_PER_SECOND } from '../shared/types'
 
 const execFileAsync = promisify(execFile)
 
@@ -64,7 +65,6 @@ export function runFfmpeg(args: string[], run: FfmpegRun = {}): Promise<void> {
 }
 
 /** Decodes the audio track and returns 8-bit peaks, `PEAKS_PER_SECOND` values per second. */
-export const PEAKS_PER_SECOND = 100
 const PEAK_SAMPLE_RATE = 4000
 
 export function extractPeaks(path: string): Promise<Buffer> {

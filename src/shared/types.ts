@@ -57,10 +57,32 @@ export interface MediaInfo {
   hasAudio: boolean
 }
 
-export interface ProjectFile {
+export interface LegacyProjectFile {
   version: 1
   mediaSize: number
   clips: Clip[]
+}
+
+export const PEAKS_PER_SECOND = 100
+
+/** A project references the original video; generated playback URLs are never persisted. */
+export interface ProjectFile {
+  format: 'sub-sync'
+  version: 2
+  media: Omit<MediaInfo, 'url'> & { relativePath?: string }
+  clips: Clip[]
+  waveform: { samplesPerSecond: typeof PEAKS_PER_SECOND; peaks: number[] } | null
+  settings: Settings
+  playback: { time: number; rate: number; follow: boolean }
+  srtPath: string | null
+}
+
+export type SavedProject = ProjectFile | LegacyProjectFile
+
+export interface OpenedProject {
+  path: string
+  project: SavedProject
+  media: MediaInfo
 }
 
 export type SttEvent =
@@ -91,8 +113,12 @@ export interface Api {
   saveSrt(content: string, path: string | null, defaultPath: string): Promise<string | null>
   pickExportPath(defaultPath: string): Promise<string | null>
   confirm(message: string, detail?: string): Promise<boolean>
-  loadProject(mediaPath: string): Promise<ProjectFile | null>
-  saveProject(mediaPath: string, project: ProjectFile): Promise<void>
+  loadProject(mediaPath: string): Promise<SavedProject | null>
+  pickProject(): Promise<OpenedProject | null>
+  saveProject(project: ProjectFile, path: string | null, defaultPath: string): Promise<string | null>
+  autosaveProject(mediaPath: string, project: ProjectFile): Promise<void>
+  onCloseRequested(listener: () => void): () => void
+  closeWindow(): Promise<void>
   loadSettings(): Promise<Partial<Settings>>
   saveSettings(settings: Settings): Promise<void>
   startStt(mediaPath: string, options: SttOptions, hotwords: string): Promise<void>

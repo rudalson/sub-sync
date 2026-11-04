@@ -7,14 +7,17 @@ import { extname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { Readable } from 'node:stream'
 import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron'
-import type { ExportRequest, MediaInfo, ProjectFile, Settings, SrtFile, SttEvent, SttOptions } from '../shared/types'
+import { projectMediaSize } from '../shared/project'
+import type { ExportRequest, MediaInfo, OpenedProject, ProjectFile, SavedProject, Settings, SrtFile, SttEvent, SttOptions } from '../shared/types'
 import { extractPeaks, probe, runFfmpeg, type Probe } from './ffmpeg'
+import { autosavePath, findProjectMedia, readProject, validateProjectMedia, writeProject } from './projects'
 
 const VIDEO_FILTERS = [
   { name: '영상', extensions: ['mp4', 'mkv', 'mov', 'webm', 'avi', 'm4v', 'wmv', 'ts', 'flv'] },
   { name: '모든 파일', extensions: ['*'] }
 ]
 const SRT_FILTERS = [{ name: 'SRT 자막', extensions: ['srt'] }]
+const PROJECT_FILTERS = [{ name: 'Sub Sync 프로젝트', extensions: ['subsync.json'] }]
 const PLAYABLE_CONTAINERS = ['mp4', 'webm']
 const PLAYABLE_VIDEO = ['h264', 'vp8', 'vp9', 'av1']
 const PLAYABLE_AUDIO = ['aac', 'mp3', 'opus', 'vorbis', 'flac']
@@ -26,10 +29,10 @@ protocol.registerSchemesAsPrivileged([
 let window: BrowserWindow | null = null
 let sttProcess: ChildProcessWithoutNullStreams | null = null
 let exportAbort: AbortController | null = null
+let allowClose = false
 const servedFiles = new Set<string>()
 
 const cachePath = (folder: string, name: string) => join(app.getPath('userData'), folder, name)
-const projectPath = (mediaPath: string) => `${mediaPath}.subsync.json`
 
 async function cacheKey(path: string): Promise<string> {
   const info = await stat(path)
@@ -215,15 +218,52 @@ function registerIpc() {
     return response === 0
   })
 
-  ipcMain.handle('load-project', async (_, mediaPath: string): Promise<ProjectFile | null> => {
-    const path = projectPath(mediaPath)
+  ipcMain.handle('load-project', async (_, mediaPath: string): Promise<SavedProject | null> => {
+    const path = autosavePath(mediaPath)
     if (!existsSync(path)) return null
-    const project: ProjectFile = JSON.parse(await readFile(path, 'utf8'))
-    return project.mediaSize === (await stat(mediaPath)).size ? project : null
+    const project = await readProject(path)
+    if (projectMediaSize(project) !== (await stat(mediaPath)).size) {
+      throw new Error('자동 저장된 프로젝트와 영상의 크기가 다릅니다. 원본 영상을 확인해 주세요.')
+    }
+    return project
   })
-  ipcMain.handle('save-project', (_, mediaPath: string, project: ProjectFile) =>
-    writeFile(projectPath(mediaPath), JSON.stringify(project), 'utf8')
+  ipcMain.handle('pick-project', async (): Promise<OpenedProject | null> => {
+    const result = await dialog.showOpenDialog(window!, { properties: ['openFile'], filters: PROJECT_FILTERS })
+    const path = result.filePaths[0]
+    if (!path) return null
+    const project = await readProject(path)
+    let mediaPath = await findProjectMedia(path, project)
+    if (!mediaPath) {
+      const relink = await dialog.showOpenDialog(window!, {
+        title: '원본 영상을 찾을 수 없습니다. 프로젝트에 사용할 영상을 다시 연결해 주세요.',
+        defaultPath: project.version === 2 ? project.media.path : undefined,
+        properties: ['openFile'],
+        filters: VIDEO_FILTERS
+      })
+      mediaPath = relink.filePaths[0] ?? null
+      if (!mediaPath) return null
+    }
+    if ((await stat(mediaPath)).size !== projectMediaSize(project)) {
+      throw new Error('저장된 프로젝트와 영상의 크기가 다릅니다. 원본 영상을 선택해 주세요.')
+    }
+    const media = await openMedia(mediaPath)
+    validateProjectMedia(project, media)
+    return { path, project, media }
+  })
+  ipcMain.handle('save-project', async (_, project: ProjectFile, path: string | null, defaultPath: string) => {
+    const target = path ?? (await dialog.showSaveDialog(window!, { defaultPath, filters: PROJECT_FILTERS })).filePath
+    if (!target) return null
+    if (target.toLowerCase() === project.media.path.toLowerCase()) throw new Error('프로젝트를 원본 영상과 같은 경로에 저장할 수 없습니다.')
+    await writeProject(target, project)
+    return target
+  })
+  ipcMain.handle('autosave-project', (_, mediaPath: string, project: ProjectFile) =>
+    writeProject(autosavePath(mediaPath), project)
   )
+  ipcMain.handle('close-window', () => {
+    allowClose = true
+    window?.close()
+  })
 
   const settingsPath = () => join(app.getPath('userData'), 'settings.json')
   ipcMain.handle('load-settings', async () => (existsSync(settingsPath()) ? JSON.parse(await readFile(settingsPath(), 'utf8')) : {}))
@@ -252,6 +292,12 @@ function createWindow() {
   })
   if (process.env.ELECTRON_RENDERER_URL) window.loadURL(process.env.ELECTRON_RENDERER_URL)
   else window.loadFile(join(__dirname, '../renderer/index.html'))
+  window.on('close', (event) => {
+    if (allowClose || !window?.webContents.getURL()) return
+    event.preventDefault()
+    window.webContents.send('close-requested')
+  })
+  window.webContents.on('render-process-gone', () => { allowClose = true })
   window.on('closed', () => (window = null))
 }
 

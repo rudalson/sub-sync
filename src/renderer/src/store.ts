@@ -11,19 +11,16 @@ import {
   type Edge
 } from '../../shared/edits'
 import { overlayCues } from '../../shared/overlay'
+import { DEFAULT_SETTINGS } from '../../shared/project'
 import { joinWords, segmentWords } from '../../shared/segment'
 import { parseSrt, serializeSrt } from '../../shared/srt'
-import type { Clip, MediaInfo, Settings, Word } from '../../shared/types'
+import { PEAKS_PER_SECOND, type Clip, type MediaInfo, type ProjectFile, type SavedProject, type Settings, type Word } from '../../shared/types'
+import { restorePlayback, usePlayback } from './player'
 
 const api = window.api
 const HISTORY_LIMIT = 100
 
-export const DEFAULT_SETTINGS: Settings = {
-  stt: { model: 'large-v3-turbo', language: 'en', device: 'auto' },
-  segment: { maxChars: 84, maxDuration: 8, splitOnSentence: true, maxGap: 0.8 },
-  style: { font: 'Malgun Gothic', sizePct: 5, marginPct: 6, box: true },
-  dictionary: ''
-}
+let restoringProject = false
 
 export type DialogName = 'stt' | 'recut' | 'export' | 'dictionary'
 
@@ -46,6 +43,9 @@ interface State {
   past: Clip[][]
   future: Clip[][]
   srtPath: string | null
+  projectPath: string | null
+  projectDirty: boolean
+  mediaSession: number
   settings: Settings
   dialog: DialogName | null
   job: Job | null
@@ -61,6 +61,9 @@ interface State {
   updateSettings(change: Partial<Settings>): void
 
   openMedia(): Promise<void>
+  openProject(): Promise<void>
+  saveProject(saveAs?: boolean): Promise<void>
+  closeWindow(): Promise<void>
   loadSrt(): Promise<void>
   saveSrt(saveAs?: boolean): Promise<void>
   transcribe(): Promise<void>
@@ -94,6 +97,37 @@ export const useStore = create<State>((set, get) => {
   /** Applies an edit as one undo step. */
   const commit = (clips: Clip[]) =>
     set((state) => ({ clips, past: [...state.past, state.clips].slice(-HISTORY_LIMIT), future: [] }))
+
+  async function applyProject(media: MediaInfo, project: SavedProject | null, projectPath: string | null) {
+    const full = project?.version === 2 ? project : null
+    if (full && (Math.abs(full.media.duration - media.duration) > 0.1 || full.media.width !== media.width || full.media.height !== media.height)) {
+      throw new Error('저장된 프로젝트와 영상 정보가 다릅니다. 원본 영상을 확인해 주세요.')
+    }
+    const peaks = full?.waveform ? Uint8Array.from(full.waveform.peaks) : media.hasAudio ? await api.loadPeaks(media.path) : null
+    const playback = full?.playback ?? { time: 0, rate: 1, follow: true }
+    restoringProject = true
+    try {
+      restorePlayback(playback, media.duration)
+      set({
+        media,
+        peaks,
+        clips: project?.clips ?? [],
+        past: [],
+        future: [],
+        srtPath: full?.srtPath ?? null,
+        projectPath,
+        projectDirty: !projectPath || !full || full.media.path !== media.path || (!full.waveform && peaks !== null),
+        mediaSession: get().mediaSession + 1,
+        settings: full?.settings ?? get().settings,
+        follow: playback.follow,
+        dialog: null,
+        dragHint: null,
+        message: project ? '프로젝트를 복원했습니다. 음성 인식 없이 편집을 이어갈 수 있습니다.' : null
+      })
+    } finally {
+      restoringProject = false
+    }
+  }
 
   async function runTranscription() {
     const { media, settings, clips } = get()
@@ -151,6 +185,9 @@ export const useStore = create<State>((set, get) => {
     past: [],
     future: [],
     srtPath: null,
+    projectPath: null,
+    projectDirty: false,
+    mediaSession: 0,
     settings: DEFAULT_SETTINGS,
     dialog: null,
     job: null,
@@ -160,7 +197,12 @@ export const useStore = create<State>((set, get) => {
 
     async init() {
       const saved = await api.loadSettings()
-      set({ settings: { ...DEFAULT_SETTINGS, ...saved } })
+      if (get().mediaSession === 0) set({ settings: {
+        ...DEFAULT_SETTINGS, ...saved,
+        stt: { ...DEFAULT_SETTINGS.stt, ...saved.stt },
+        segment: { ...DEFAULT_SETTINGS.segment, ...saved.segment },
+        style: { ...DEFAULT_SETTINGS.style, ...saved.style }
+      } })
       api.onProgress((progress) => {
         const job = get().job
         if (job) set({ job: { ...job, progress } })
@@ -179,18 +221,85 @@ export const useStore = create<State>((set, get) => {
     },
 
     async openMedia() {
-      const path = await api.pickMedia()
-      if (!path) return
+      if (get().job) return
       set({ job: { label: '영상 준비 중', progress: null } })
       try {
+        const path = await api.pickMedia()
+        if (!path) return
+        await flushAutosave()
         const media = await api.openMedia(path)
         const project = await api.loadProject(path)
-        set({ media, peaks: null, clips: project?.clips ?? [], past: [], future: [], srtPath: null, message: null, job: null })
-        const peaks = await api.loadPeaks(path)
-        if (get().media?.path === path) set({ peaks })
+        await applyProject(media, project, null)
       } catch (error) {
-        set({ message: `영상을 열 수 없습니다: ${errorText(error)}`, job: null })
+        set({ message: `영상을 열 수 없습니다: ${errorText(error)}` })
+      } finally {
+        set({ job: null })
       }
+    },
+
+    async openProject() {
+      if (get().job) return
+      set({ job: { label: '프로젝트 불러오는 중', progress: null } })
+      try {
+        await flushAutosave()
+        const opened = await api.pickProject()
+        if (opened) await applyProject(opened.media, opened.project, opened.path)
+      } catch (error) {
+        set({ message: `프로젝트를 열 수 없습니다: ${errorText(error)}` })
+      } finally {
+        set({ job: null })
+      }
+    },
+
+    async saveProject(saveAs = false) {
+      const state = get()
+      if (!state.media || state.job) return
+      set({ job: { label: '프로젝트 저장 중', progress: null } })
+      try {
+        // A protected video folder must not prevent saving a named project in another folder.
+        await flushAutosave().catch(() => {})
+        const project = projectSnapshot(get())!
+        const path = await api.saveProject(project, saveAs ? null : state.projectPath, state.projectPath ?? `${stripExtension(state.media.path)}.subsync.json`)
+        if (path && get().mediaSession === state.mediaSession) {
+          const current = get()
+          const playback = usePlayback.getState()
+          const dirty = current.clips !== project.clips || current.settings !== project.settings ||
+            current.peaks !== state.peaks || current.srtPath !== project.srtPath ||
+            playback.time !== project.playback.time || playback.rate !== project.playback.rate ||
+            current.follow !== project.playback.follow
+          if (!dirty) {
+            clearTimeout(saveTimer)
+            pendingSave = null
+            autosaveWrite = autosaveWrite.catch(() => {})
+          }
+          set({
+            projectPath: path,
+            projectDirty: dirty,
+            message: `프로젝트를 저장했습니다: ${path}`
+          })
+        }
+      } catch (error) {
+        set({ message: `프로젝트 저장 실패: ${errorText(error)}` })
+      } finally {
+        set({ job: null })
+      }
+    },
+
+    async closeWindow() {
+      const previousJob = get().job
+      set({ job: { label: '편집 내용 자동 저장 중', progress: null } })
+      try {
+        if (get().projectDirty) scheduleAutosave(get())
+        await flushAutosave()
+      } catch (error) {
+        set({ message: `자동 저장 실패: ${errorText(error)}` })
+        const proceed = await api.confirm('자동 저장에 실패했습니다. 그래도 종료할까요?', '편집 내용을 보존하려면 취소한 뒤 프로젝트를 다른 위치에 저장해 주세요.')
+        if (!proceed) {
+          set({ job: previousJob })
+          return
+        }
+      }
+      await api.closeWindow()
     },
 
     async loadSrt() {
@@ -285,14 +394,61 @@ export const useStore = create<State>((set, get) => {
   }
 })
 
-let saveTimer: ReturnType<typeof setTimeout> | undefined
+function projectSnapshot(state: State, playback = usePlayback.getState()): ProjectFile | null {
+  if (!state.media) return null
+  const { url: _url, ...media } = state.media
+  return {
+    format: 'sub-sync', version: 2, media,
+    clips: state.clips,
+    waveform: state.peaks === null ? null : { samplesPerSecond: PEAKS_PER_SECOND, peaks: Array.from(state.peaks) },
+    settings: state.settings,
+    playback: { time: playback.time, rate: playback.rate, follow: state.follow },
+    srtPath: state.srtPath
+  }
+}
 
-/** Word anchors exist only here, not in SRT, so every change is written next to the video. */
-useStore.subscribe((state, previous) => {
-  if (state.clips === previous.clips || !state.media) return
-  const { media } = state
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+let pendingSave: { state: State; playback: ReturnType<typeof usePlayback.getState> } | null = null
+let autosaveWrite: Promise<void> = Promise.resolve()
+
+function scheduleAutosave(state: State) {
+  if (!state.media) return
+  pendingSave = { state, playback: usePlayback.getState() }
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
-    void api.saveProject(media.path, { version: 1, mediaSize: media.size, clips: useStore.getState().clips })
+    void flushAutosave().catch((error) => useStore.getState().setMessage(`자동 저장 실패: ${errorText(error)}. 프로젝트 저장으로 다른 위치에 저장해 주세요.`))
   }, 800)
+}
+
+/** Finish the captured session before opening another video; never read the next session's clips in a delayed callback. */
+export async function flushAutosave(): Promise<void> {
+  clearTimeout(saveTimer)
+  const pending = pendingSave
+  if (pending) {
+    pendingSave = null
+    const project = projectSnapshot(pending.state, pending.playback)!
+    autosaveWrite = autosaveWrite.catch(() => {}).then(() => api.autosaveProject(project.media.path, project)).catch((error) => {
+      if (!pendingSave) pendingSave = pending
+      throw error
+    })
+  }
+  await autosaveWrite
+}
+
+useStore.subscribe((state, previous) => {
+  if (restoringProject || state.mediaSession !== previous.mediaSession || !state.media) return
+  if (state.clips === previous.clips && state.settings === previous.settings && state.peaks === previous.peaks &&
+    state.follow === previous.follow && state.srtPath === previous.srtPath) return
+  if (!state.projectDirty) useStore.setState({ projectDirty: true })
+  scheduleAutosave(state)
+})
+
+usePlayback.subscribe((playback, previous) => {
+  const state = useStore.getState()
+  if (restoringProject || !state.media) return
+  if (playback.time !== previous.time || playback.rate !== previous.rate) {
+    if (!state.projectDirty) useStore.setState({ projectDirty: true })
+    // Paused seeks and playback pauses persist the position without rewriting a large waveform on every frame.
+    if (!playback.playing || playback.rate !== previous.rate) scheduleAutosave(state)
+  } else if (previous.playing && !playback.playing) scheduleAutosave(state)
 })

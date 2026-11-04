@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { attachVideo, clipIndexAt, formatClock, seek, setRate, togglePlay, usePlayback } from '../player'
+import { attachVideo, clipIndexAt, formatClock, seek, setRate, togglePlay, usePlayback, videoLoaded } from '../player'
 import { useStore } from '../store'
 
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
@@ -57,7 +57,7 @@ function Transport() {
         <span className="clock">
           {formatClock(time)} / {formatClock(duration)}
         </span>
-        <select value={rate} onChange={(event) => setRate(Number(event.target.value))}>
+        <select aria-label="재생 속도" value={rate} onChange={(event) => setRate(Number(event.target.value))}>
           {RATES.map((value) => (
             <option key={value} value={value}>
               {value}x
@@ -71,6 +71,7 @@ function Transport() {
 
 export function Player() {
   const media = useStore((state) => state.media)
+  const mediaSession = useStore((state) => state.mediaSession)
   const openMedia = useStore((state) => state.openMedia)
   const { stage, size } = useFittedSize(media ? media.width / media.height : 16 / 9)
 
@@ -82,10 +83,11 @@ export function Player() {
         {media ? (
           <div className="frame" style={size}>
             <video
+              key={mediaSession}
               ref={attachVideo}
               src={media.url}
               onClick={togglePlay}
-              onLoadedMetadata={(event) => usePlayback.setState({ duration: event.currentTarget.duration, time: 0 })}
+              onLoadedMetadata={(event) => videoLoaded(event.currentTarget)}
               onPlay={() => usePlayback.setState({ playing: true })}
               onPause={() => usePlayback.setState({ playing: false })}
               onError={() => useStore.getState().setMessage('이 영상은 재생할 수 없습니다.')}

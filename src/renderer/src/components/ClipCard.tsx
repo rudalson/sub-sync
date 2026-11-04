@@ -1,12 +1,11 @@
 import { memo, useEffect, useMemo, useRef } from 'react'
 import type { Edge } from '../../../shared/edits'
-import type { Clip } from '../../../shared/types'
+import { PEAKS_PER_SECOND, type Clip } from '../../../shared/types'
 import { formatClock, seek, usePlayback, wordIndexAt } from '../player'
 import { useStore } from '../store'
 
 const SILENCE_CHIP = 0.25
 const SECONDS_PER_PIXEL = 0.01
-const PEAKS_PER_SECOND = 100
 const BAR_STEP = 3
 
 interface Handle {

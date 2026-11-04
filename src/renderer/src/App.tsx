@@ -17,12 +17,25 @@ export function App() {
 
   useEffect(() => {
     void useStore.getState().init()
+    let closing = false
+    const unsubscribeClose = window.api.onCloseRequested(() => {
+      if (closing) return
+      closing = true
+      void useStore.getState().closeWindow().finally(() => { closing = false })
+    })
     const onKeyDown = (event: KeyboardEvent) => {
       const store = useStore.getState()
       const key = event.key.toLowerCase()
+      if (store.job || store.dialog) return
       if (event.ctrlKey && key === 's') {
         event.preventDefault()
-        void store.saveSrt(event.shiftKey)
+        if (event.altKey) void store.saveSrt(event.shiftKey)
+        else void store.saveProject(event.shiftKey)
+        return
+      }
+      if (event.ctrlKey && key === 'o') {
+        event.preventDefault()
+        void store.openProject()
         return
       }
       if (isTyping(event.target)) return
@@ -43,7 +56,10 @@ export function App() {
       }
     }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      unsubscribeClose()
+    }
   }, [])
 
   return (
