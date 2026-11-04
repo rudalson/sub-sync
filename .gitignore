@@ -1,0 +1,6 @@
+node_modules/
+out/
+dist/
+backend/.venv/
+__pycache__/
+*.subsync.json
