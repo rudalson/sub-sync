@@ -1,5 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import { closeSubtitleGaps } from '../../../shared/timing'
 import { clipIndexAt, usePlayback } from '../player'
 import { useStore } from '../store'
 import { ClipCard } from './ClipCard'
@@ -8,7 +9,18 @@ export function ClipList() {
   const clips = useStore((state) => state.clips)
   const follow = useStore((state) => state.follow)
   const setFollow = useStore((state) => state.setFollow)
-  const active = usePlayback((state) => clipIndexAt(clips, state.time))
+  const presentation = useMemo(() => {
+    const subtitles = closeSubtitleGaps(clips)
+    return {
+      subtitles,
+      byId: new Map(subtitles.map((clip) => [clip.id, clip])),
+      indices: new Map(clips.map((clip, index) => [clip.id, index]))
+    }
+  }, [clips])
+  const active = usePlayback((state) => {
+    const clip = presentation.subtitles[clipIndexAt(presentation.subtitles, state.time)]
+    return clip ? presentation.indices.get(clip.id) ?? -1 : -1
+  })
   const scroller = useRef<HTMLDivElement>(null)
 
   const virtualizer = useVirtualizer({
@@ -45,7 +57,12 @@ export function ClipList() {
                 className="clip-row"
                 style={{ transform: `translateY(${item.start}px)` }}
               >
-                <ClipCard clip={clips[item.index]} index={item.index} active={item.index === active} isLast={item.index === clips.length - 1} />
+                <ClipCard
+                  clip={presentation.byId.get(clips[item.index].id) ?? clips[item.index]}
+                  index={item.index}
+                  active={item.index === active}
+                  isLast={item.index === clips.length - 1}
+                />
               </div>
             ))}
           </div>

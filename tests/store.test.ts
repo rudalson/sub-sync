@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { parseSrt } from '../src/shared/srt'
 import { makeProject, media } from './fixtures/project'
 
 const api = {
@@ -43,6 +44,21 @@ afterEach(async () => {
 })
 
 describe('project editing session', () => {
+  it('saves SRT with connected display timing while preserving editable speech anchors', async () => {
+    await useStore.getState().openMedia()
+    const clips = makeProject().clips
+    clips[1] = { ...clips[1], start: 4, text: '다음 자막' }
+    useStore.setState({ clips })
+    api.saveSrt.mockResolvedValue('C:\\Videos\\원본.srt')
+    await useStore.getState().saveSrt()
+    const saved = parseSrt(api.saveSrt.mock.calls[0][0])
+    expect(saved[0].end).toBe(4)
+    expect(saved[1].start).toBe(4)
+    expect(useStore.getState().clips).toBe(clips)
+    expect(useStore.getState().clips[0].end).toBe(3.875)
+    expect(useStore.getState().clips[0].words.at(-1)?.end).toBe(3.875)
+  })
+
   it('saves all editing data separately from SRT, then overwrites or saves as requested', async () => {
     await useStore.getState().openMedia()
     useStore.setState({ clips: makeProject().clips })
