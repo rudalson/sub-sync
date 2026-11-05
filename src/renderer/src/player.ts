@@ -107,3 +107,9 @@ export function formatClock(time: number): string {
   const pad = (value: number) => String(value).padStart(2, '0')
   return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
 }
+
+/** Millisecond precision, carrying rounding into the next second/minute/hour. */
+export function formatTimecode(time: number): string {
+  const milliseconds = Number.isFinite(time) ? Math.max(0, Math.round(time * 1000)) : 0
+  return formatClock(Math.floor(milliseconds / 1000)) + '.' + String(milliseconds % 1000).padStart(3, '0')
+}

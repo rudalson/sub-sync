@@ -1,55 +1,63 @@
+import appIcon from '../assets/sub-sync-brand/app-icon.svg'
 import { useStore } from '../store'
+import { SaveControl } from './SaveControl'
 
 export function Toolbar() {
-  const store = useStore()
-  const hasMedia = store.media !== null
-  const hasClips = store.clips.length > 0
-  const name = (store.projectPath ?? store.media?.path)?.split(/[\\/]/).pop()
+  const media = useStore((state) => state.media)
+  const projectPath = useStore((state) => state.projectPath)
+  const dirty = useStore((state) => state.projectDirty)
+  const hasClips = useStore((state) => state.clips.length > 0)
+  const canUndo = useStore((state) => state.past.length > 0)
+  const canRedo = useStore((state) => state.future.length > 0)
+  const name = (projectPath ?? media?.path)?.split(/[\\/]/).pop() ?? '새 프로젝트'
+  const status = !media ? '영상이나 프로젝트를 열어 시작하세요'
+    : !projectPath ? '프로젝트로 저장해 편집을 이어가세요'
+      : dirty ? '저장하지 않은 변경 사항이 있습니다' : '프로젝트 저장됨'
 
   return (
     <header className="toolbar">
-      <div className="toolbar-group">
-        <button onClick={() => void store.openProject()} title="Ctrl+O">프로젝트 열기</button>
-        <button disabled={!hasMedia} onClick={() => void store.saveProject()} title="Ctrl+S">
-          프로젝트 저장
-        </button>
-        <button disabled={!hasMedia} onClick={() => void store.saveProject(true)} title="프로젝트를 다른 이름으로 저장 (Ctrl+Shift+S)">
-          다른 이름으로
-        </button>
+      <div className="project-bar">
+        <div className="brand"><img src={appIcon} width={32} height={32} alt="" /><span>Sub Sync</span></div>
+        <div className="project-identity">
+          <div className="project-name" title={projectPath ?? media?.path}>{name}</div>
+          <div className={media && dirty ? 'project-state unsaved' : 'project-state'}>
+            {media && dirty && <span className="state-dot" aria-hidden="true" />}{status}
+          </div>
+        </div>
+        <div className="project-actions" aria-label="프로젝트 도구">
+          <button onClick={() => void useStore.getState().openProject()} title="프로젝트 열기 (Ctrl+O)">프로젝트 열기</button>
+          <SaveControl
+            label="프로젝트 저장" disabled={!media} shortcut="Ctrl+S"
+            saveAsLabel="다른 이름으로 저장" saveAsShortcut="Ctrl+Shift+S"
+            onSave={() => void useStore.getState().saveProject()}
+            onSaveAs={() => void useStore.getState().saveProject(true)}
+          />
+          <span className="action-divider" aria-hidden="true" />
+          <button className="export-button" disabled={!media || !hasClips} onClick={() => useStore.getState().setDialog('export')}>
+            영상 내보내기 <span aria-hidden="true">↗</span>
+          </button>
+        </div>
       </div>
-      <div className="toolbar-group">
-        <button onClick={() => void store.openMedia()}>영상 열기</button>
-        <button className="primary" disabled={!hasMedia} onClick={() => store.setDialog('stt')}>
-          자막 생성
-        </button>
-        <button disabled={!hasClips} onClick={() => store.setDialog('recut')}>
-          자막 길이
-        </button>
-        <button onClick={() => store.setDialog('dictionary')}>단어 사전</button>
-      </div>
-      <div className="toolbar-group">
-        <button onClick={() => void store.loadSrt()}>SRT 불러오기</button>
-        <button disabled={!hasClips} onClick={() => void store.saveSrt()} title="Ctrl+Alt+S">
-          SRT 저장
-        </button>
-        <button disabled={!hasClips} onClick={() => void store.saveSrt(true)} title="SRT를 다른 이름으로 저장 (Ctrl+Alt+Shift+S)">
-          SRT 다른 이름으로
-        </button>
-      </div>
-      <div className="toolbar-group">
-        <button disabled={store.past.length === 0} onClick={store.undo} title="Ctrl+Z">
-          실행 취소
-        </button>
-        <button disabled={store.future.length === 0} onClick={store.redo} title="Ctrl+Y">
-          다시 실행
-        </button>
-      </div>
-      <div className="toolbar-title" title={store.projectPath ?? store.media?.path}>
-        {name}{hasMedia && store.projectDirty ? ' *' : ''}
-      </div>
-      <button className="primary" disabled={!hasMedia || !hasClips} onClick={() => store.setDialog('export')}>
-        영상 내보내기
-      </button>
+      <nav className="command-bar" aria-label="자막 작업 도구">
+        <div className="command-group">
+          <button onClick={() => void useStore.getState().openMedia()}>영상 열기</button>
+          <button className="primary" disabled={!media} onClick={() => useStore.getState().setDialog('stt')}>자막 생성</button>
+          <button className="quiet" disabled={!hasClips} onClick={() => useStore.getState().setDialog('recut')}>자막 길이</button>
+          <button className="quiet" onClick={() => useStore.getState().setDialog('dictionary')}>단어 사전</button>
+        </div>
+        <div className="command-group secondary-tools">
+          <button className="quiet" onClick={() => void useStore.getState().loadSrt()}>SRT 불러오기</button>
+          <SaveControl
+            label="SRT 저장" disabled={!hasClips} shortcut="Ctrl+Alt+S"
+            saveAsLabel="SRT 다른 이름으로" saveAsShortcut="Ctrl+Alt+Shift+S"
+            onSave={() => void useStore.getState().saveSrt()}
+            onSaveAs={() => void useStore.getState().saveSrt(true)}
+          />
+          <span className="action-divider" aria-hidden="true" />
+          <button className="quiet" disabled={!canUndo} onClick={() => useStore.getState().undo()} title="실행 취소 (Ctrl+Z)">실행 취소</button>
+          <button className="quiet" disabled={!canRedo} onClick={() => useStore.getState().redo()} title="다시 실행 (Ctrl+Y)">다시 실행</button>
+        </div>
+      </nav>
     </header>
   )
 }

@@ -2,18 +2,15 @@ import { useEffect } from 'react'
 import { Dialogs } from './components/Dialogs'
 import { Workspace } from './components/Workspace'
 import { Toolbar } from './components/Toolbar'
+import { Feedback } from './components/Feedback'
 import { seekBy, togglePlay } from './player'
 import { useStore } from './store'
 
 function isTyping(target: EventTarget | null): boolean {
-  return target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement || target instanceof HTMLSelectElement
+  return target instanceof Element && target.closest('textarea, input, select, [contenteditable="true"]') !== null
 }
 
 export function App() {
-  const job = useStore((state) => state.job)
-  const message = useStore((state) => state.message)
-  const dragHint = useStore((state) => state.dragHint)
-
   useEffect(() => {
     void useStore.getState().init()
     let closing = false
@@ -25,7 +22,7 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       const store = useStore.getState()
       const key = event.key.toLowerCase()
-      if (store.job || store.dialog) return
+      if (event.defaultPrevented || store.job || store.dialog) return
       if (event.ctrlKey && key === 's') {
         event.preventDefault()
         if (event.altKey) void store.saveSrt(event.shiftKey)
@@ -45,12 +42,16 @@ export function App() {
       } else if (event.ctrlKey && key === 'y') {
         event.preventDefault()
         store.redo()
+      } else if (event.target instanceof Element && event.target.closest('button, a, summary, [role="button"]')) {
+        return
       } else if (event.code === 'Space') {
         event.preventDefault()
         togglePlay()
       } else if (event.key === 'ArrowLeft') {
+        event.preventDefault()
         seekBy(-1)
       } else if (event.key === 'ArrowRight') {
+        event.preventDefault()
         seekBy(1)
       }
     }
@@ -65,34 +66,14 @@ export function App() {
     <div className="app">
       <Toolbar />
       <Workspace />
+      <footer className="status-bar" aria-label="단축키 안내">
+        <span><kbd>Space</kbd> 재생·일시정지</span>
+        <span><kbd>←</kbd><kbd>→</kbd> 1초 이동</span>
+        <span><kbd>Ctrl+S</kbd> 프로젝트 저장</span>
+        <span className="status-tip">경계 조절 <kbd>←</kbd><kbd>→</kbd> 0.01초 · <kbd>Shift</kbd> 0.1초</span>
+      </footer>
 
-      {message && (
-        <button className="toast" onClick={() => useStore.getState().setMessage(null)}>
-          {message}
-        </button>
-      )}
-      {dragHint && (
-        <div className="drag-hint" style={{ left: dragHint.x, top: dragHint.y }}>
-          {dragHint.label}
-        </div>
-      )}
-      {job && (
-        <div className="overlay">
-          <div className="job">
-            <div className="job-label">{job.label}</div>
-            <div className="job-bar">
-              <div
-                className={job.progress === null ? 'job-fill indeterminate' : 'job-fill'}
-                style={job.progress === null ? undefined : { width: `${job.progress * 100}%` }}
-              />
-            </div>
-            <div className="job-footer">
-              <span>{job.progress === null ? '' : `${Math.round(job.progress * 100)}%`}</span>
-              {job.cancel && <button onClick={job.cancel}>취소</button>}
-            </div>
-          </div>
-        </div>
-      )}
+      <Feedback />
       <Dialogs />
     </div>
   )

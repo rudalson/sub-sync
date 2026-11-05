@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef } from 'react'
 import type { Edge } from '../../../shared/edits'
 import { PEAKS_PER_SECOND, type Clip } from '../../../shared/types'
-import { formatClock, seek, usePlayback, wordIndexAt } from '../player'
+import { formatTimecode, seek, usePlayback, wordIndexAt } from '../player'
 import { useStore } from '../store'
 
 const SILENCE_CHIP = 0.25
@@ -115,31 +115,59 @@ function Waveform({ start, end }: { start: number; end: number }) {
     return () => paintObserver.unobserve(element)
   }, [peaks, start, end])
 
-  return <canvas className="waveform" ref={canvas} />
+  return <canvas className="waveform" ref={canvas} aria-hidden="true" />
 }
 
 function EdgeHandle({ index, handle, side }: { index: number; handle: Handle; side: 'left' | 'right' }) {
+  const drag = useRef<{ pointerId: number; x: number; time: number } | null>(null)
+  const keyboardEditing = useRef(false)
+  useEffect(() => () => {
+    if (drag.current) useStore.getState().setDragHint(null)
+  }, [])
+
   const startDrag = (event: React.PointerEvent) => {
+    if (event.button !== 0 || !event.isPrimary || drag.current) return
     event.preventDefault()
     event.stopPropagation()
-    const store = useStore.getState()
-    const startX = event.clientX
-    store.beginEdit()
-
-    const onMove = (move: PointerEvent) => {
-      const time = handle.time + (move.clientX - startX) * SECONDS_PER_PIXEL
-      store.dragEdge(index, handle.edge, time)
-      store.setDragHint({ x: move.clientX, y: move.clientY, label: `${Math.max(0, time).toFixed(2)}초` })
-    }
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-      store.setDragHint(null)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
+    event.currentTarget.setPointerCapture(event.pointerId)
+    drag.current = { pointerId: event.pointerId, x: event.clientX, time: handle.time }
+    useStore.getState().beginEdit()
   }
-  return <div className={`edge edge-${side}`} onPointerDown={startDrag} onClick={(event) => event.stopPropagation()} />
+  const finishDrag = () => {
+    if (!drag.current) return
+    drag.current = null
+    useStore.getState().setDragHint(null)
+  }
+  return (
+    <button
+      className={`edge edge-${side}`}
+      aria-label={(side === 'left' ? '시작' : '종료') + ' 경계 ' + formatTimecode(handle.time) + ', 방향키로 시간 조절'}
+      title="드래그 또는 ← →로 0.01초 조절 · Shift로 0.1초 조절"
+      onPointerDown={startDrag}
+      onPointerMove={(event) => {
+        const active = drag.current
+        if (!active || active.pointerId !== event.pointerId) return
+        const time = active.time + (event.clientX - active.x) * SECONDS_PER_PIXEL
+        const store = useStore.getState()
+        store.dragEdge(index, handle.edge, time)
+        store.setDragHint({ x: event.clientX, y: event.clientY, label: formatTimecode(Math.max(0, time)) })
+      }}
+      onPointerUp={finishDrag}
+      onPointerCancel={finishDrag}
+      onLostPointerCapture={finishDrag}
+      onKeyDown={(event) => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+        event.preventDefault()
+        event.stopPropagation()
+        const store = useStore.getState()
+        if (!keyboardEditing.current) { store.beginEdit(); keyboardEditing.current = true }
+        store.dragEdge(index, handle.edge, handle.time + (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 0.1 : 0.01))
+      }}
+      onKeyUp={() => { keyboardEditing.current = false }}
+      onBlur={() => { keyboardEditing.current = false }}
+      onClick={(event) => { event.stopPropagation(); if (event.detail === 0) seek(handle.time) }}
+    />
+  )
 }
 
 const ChipView = memo(function ChipView({ chip, index, active }: { chip: Chip; index: number; active: boolean }) {
@@ -149,22 +177,24 @@ const ChipView = memo(function ChipView({ chip, index, active }: { chip: Chip; i
     <div
       className={`chip chip-${chip.kind}${active ? ' active' : ''}`}
       title={`${chip.start.toFixed(2)} ~ ${chip.end.toFixed(2)}초`}
-      onClick={() => seek(chip.start)}
     >
-      <span className="chip-label">{chip.label}</span>
-      <Waveform start={chip.start} end={chip.end} />
+      <button className="chip-content" onClick={() => seek(chip.start)} aria-label={chip.label + ', ' + formatTimecode(chip.start) + '로 이동'}>
+        <span className="chip-label">{chip.label}</span>
+        <Waveform start={chip.start} end={chip.end} />
+      </button>
       {chip.left && <EdgeHandle index={index} handle={chip.left} side="left" />}
       <EdgeHandle index={index} handle={chip.right} side="right" />
       {canSplit && (
         <button
           className="chip-split"
           title="이 단어부터 새 자막으로 나누기"
+          aria-label={chip.label + '부터 새 자막으로 나누기'}
           onClick={(event) => {
             event.stopPropagation()
             split(index, chip.word!)
           }}
         >
-          ✂
+          분할
         </button>
       )}
     </div>
@@ -185,18 +215,15 @@ export const ClipCard = memo(function ClipCard({ clip, index, active, isLast }: 
   const editing = useRef(false)
 
   return (
-    <article className={active ? 'clip active' : 'clip'}>
+    <article className={active ? 'clip active' : 'clip'} aria-current={active ? 'true' : undefined}>
       <header className="clip-header">
-        <button className="clip-number" onClick={() => seek(clip.start)}>
-          {index + 1}
+        <button className="clip-number" onClick={() => seek(clip.start)} aria-label={(index + 1) + '번 자막으로 이동'}>
+          {String(index + 1).padStart(2, '0')}
         </button>
         <span className="clip-time">
-          {formatClock(clip.start)} + {(clip.end - clip.start).toFixed(2)}초
+          <span>{formatTimecode(clip.start)}</span><span className="time-arrow" aria-hidden="true">→</span><span>{formatTimecode(clip.end)}</span>
         </span>
-        <span className="clip-actions">
-          {!isLast && <button onClick={() => store.merge(index)}>다음과 합치기</button>}
-          <button onClick={() => store.remove(index)}>삭제</button>
-        </span>
+        <span className="clip-duration">{(clip.end - clip.start).toFixed(2)}초</span>
       </header>
       <div className="chips">
         {chips.map((chip) => (
@@ -205,6 +232,7 @@ export const ClipCard = memo(function ClipCard({ clip, index, active, isLast }: 
       </div>
       <textarea
         className="clip-text"
+        aria-label={(index + 1) + '번 자막 문장'}
         value={clip.text}
         rows={1}
         spellCheck={false}
@@ -217,6 +245,13 @@ export const ClipCard = memo(function ClipCard({ clip, index, active, isLast }: 
           store.editText(index, event.target.value)
         }}
       />
+      <footer className="clip-footer">
+        <span className="char-count">{clip.text.length}자</span>
+        <div className="clip-actions">
+          {!isLast && <button className="quiet" onClick={() => store.merge(index)}>다음과 합치기</button>}
+          <button className="quiet" onClick={() => store.remove(index)}>삭제</button>
+        </div>
+      </footer>
     </article>
   )
 })

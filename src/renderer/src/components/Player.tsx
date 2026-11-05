@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { closeSubtitleGaps } from '../../../shared/timing'
-import { attachVideo, clipIndexAt, formatClock, seek, setRate, togglePlay, usePlayback, videoLoaded } from '../player'
+import { attachVideo, clipIndexAt, formatClock, formatTimecode, seek, seekBy, setRate, togglePlay, usePlayback, videoLoaded } from '../player'
 import { useStore } from '../store'
 
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
@@ -36,7 +36,7 @@ function Caption() {
   )
 }
 
-function Transport() {
+function Transport({ hasMedia }: { hasMedia: boolean }) {
   const time = usePlayback((state) => state.time)
   const duration = usePlayback((state) => state.duration)
   const playing = usePlayback((state) => state.playing)
@@ -45,27 +45,29 @@ function Transport() {
     <div className="transport">
       <input
         className="seekbar"
+        aria-label="영상 재생 위치"
+        aria-valuetext={formatTimecode(time) + ' / ' + formatTimecode(duration)}
         type="range"
+        disabled={!hasMedia}
         min={0}
         max={duration || 0}
         step={0.01}
         value={time}
+        style={{ '--seek-progress': (duration ? Math.min(100, time / duration * 100) : 0) + '%' } as CSSProperties}
         onChange={(event) => seek(Number(event.target.value))}
       />
       <div className="transport-row">
-        <button className="icon" onClick={togglePlay} aria-label={playing ? '일시정지' : '재생'}>
-          {playing ? '❚❚' : '▶'}
-        </button>
-        <span className="clock">
-          {formatClock(time)} / {formatClock(duration)}
-        </span>
-        <select aria-label="재생 속도" value={rate} onChange={(event) => setRate(Number(event.target.value))}>
-          {RATES.map((value) => (
-            <option key={value} value={value}>
-              {value}x
-            </option>
-          ))}
-        </select>
+        <div className="playback-actions">
+          <button className="quiet seek-button" disabled={!hasMedia} onClick={() => seekBy(-1)} aria-label="1초 뒤로" title="1초 뒤로 (←)">−1초</button>
+          <button className="play-button" disabled={!hasMedia} onClick={togglePlay} title="재생·일시정지 (Space)">{playing ? '일시정지' : '재생'}</button>
+          <button className="quiet seek-button" disabled={!hasMedia} onClick={() => seekBy(1)} aria-label="1초 앞으로" title="1초 앞으로 (→)">+1초</button>
+        </div>
+        <div className="clock"><strong>{formatTimecode(time)}</strong><span>/ {formatTimecode(duration)}</span></div>
+        <label className="rate-label"><span>재생 속도</span>
+          <select aria-label="재생 속도" disabled={!hasMedia} value={rate} onChange={(event) => setRate(Number(event.target.value))}>
+            {RATES.map((value) => <option key={value} value={value}>{value}×</option>)}
+          </select>
+        </label>
       </div>
     </div>
   )
@@ -78,7 +80,11 @@ export function Player() {
   const { stage, size } = useFittedSize(media ? media.width / media.height : 16 / 9)
 
   return (
-    <section className="player" id="video-pane" aria-label="영상">
+    <section className="player" id="video-pane" aria-labelledby="video-title">
+      <header className="pane-header video-header">
+        <h1 id="video-title">영상 미리보기</h1>
+        {media && <span className="pane-meta" title={media.path}>{media.path.split(/[\\/]/).pop()} · {media.width}×{media.height} · {formatClock(media.duration)}</span>}
+      </header>
       <div className="stage" ref={stage}>
         {media ? (
           <div className="frame" style={size}>
@@ -95,12 +101,16 @@ export function Player() {
             <Caption />
           </div>
         ) : (
-          <button className="empty-open" onClick={() => void openMedia()}>
-            영상 파일을 열어 시작하세요
-          </button>
+          <div className="start-state">
+            <span className="empty-eyebrow">영상에서 자막까지</span>
+            <h2>편집할 영상을 열어주세요</h2>
+            <p>음성을 자막으로 만들고,<br />단어의 타이밍과 문장을 다듬어보세요.</p>
+            <button className="primary large" onClick={() => void openMedia()}>영상 열기</button>
+            <button className="quiet resume" onClick={() => void useStore.getState().openProject()}>이전에 저장한 프로젝트 열기 <span aria-hidden="true">→</span></button>
+          </div>
         )}
       </div>
-      <Transport />
+      <Transport hasMedia={media !== null} />
     </section>
   )
 }

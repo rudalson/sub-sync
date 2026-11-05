@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { SegmentOptions } from '../../../shared/types'
 import { useStore } from '../store'
+import { Modal } from './Modal'
 
 const MODELS = [
   { id: 'large-v3-turbo', label: 'large-v3-turbo (권장)' },
@@ -17,18 +18,11 @@ const LENGTH_PRESETS = [
   { label: '문장 단위', maxChars: 160, maxDuration: 15 }
 ]
 
-function Dialog({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer: ReactNode }) {
+function Dialog({ title, description, onClose, children, footer }: { title: string; description?: string; onClose: () => void; children: ReactNode; footer: ReactNode }) {
   return (
-    <div className="overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-label={title}>
-        <h2>{title}</h2>
-        <div className="dialog-body">{children}</div>
-        <div className="dialog-footer">
-          <button onClick={onClose}>닫기</button>
-          {footer}
-        </div>
-      </div>
-    </div>
+    <Modal title={title} description={description} onClose={onClose} footer={<><button onClick={onClose}>닫기</button>{footer}</>}>
+      {children}
+    </Modal>
   )
 }
 
@@ -50,11 +44,12 @@ function LengthFields() {
     <>
       <div className="field">
         <span>자막 길이</span>
-        <div className="segmented">
+        <div className="segmented" role="group" aria-label="자막 길이 프리셋">
           {LENGTH_PRESETS.map(({ label, ...preset }) => (
             <button
               key={label}
               className={segment.maxChars === preset.maxChars && segment.maxDuration === preset.maxDuration ? 'on' : ''}
+              aria-pressed={segment.maxChars === preset.maxChars && segment.maxDuration === preset.maxDuration}
               onClick={() => change(preset)}
             >
               {label}
@@ -87,53 +82,58 @@ function LengthFields() {
 }
 
 function SttDialog() {
-  const store = useStore()
-  const { stt } = store.settings
+  const stt = useStore((state) => state.settings.stt)
+  const store = useStore.getState()
   const change = (value: Partial<typeof stt>) => store.updateSettings({ stt: { ...stt, ...value } })
   return (
     <Dialog
       title="자막 생성"
+      description="영상의 음성을 인식하고, 편집하기 좋은 길이로 자막을 나눕니다."
       onClose={() => store.setDialog(null)}
       footer={
         <button className="primary" onClick={() => void store.transcribe()}>
-          시작
+          자막 생성 시작
         </button>
       }
     >
-      <Field label="Whisper 모델">
-        <select value={stt.model} onChange={(event) => change({ model: event.target.value })}>
-          {MODELS.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.label}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="언어">
-        <select value={stt.language} onChange={(event) => change({ language: event.target.value })}>
-          <option value="en">영어</option>
-          <option value="ko">한국어</option>
-          <option value="auto">자동 감지</option>
-        </select>
-      </Field>
-      <Field label="실행 장치">
-        <select value={stt.device} onChange={(event) => change({ device: event.target.value as typeof stt.device })}>
-          <option value="auto">자동 (GPU 우선)</option>
-          <option value="cuda">GPU</option>
-          <option value="cpu">CPU</option>
-        </select>
-      </Field>
-      <LengthFields />
+      <section className="settings-group">
+        <h3>음성 인식</h3>
+        <Field label="Whisper 모델">
+          <select value={stt.model} onChange={(event) => change({ model: event.target.value })}>
+            {MODELS.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="언어">
+          <select value={stt.language} onChange={(event) => change({ language: event.target.value })}>
+            <option value="en">영어</option>
+            <option value="ko">한국어</option>
+            <option value="auto">자동 감지</option>
+          </select>
+        </Field>
+        <Field label="실행 장치">
+          <select value={stt.device} onChange={(event) => change({ device: event.target.value as typeof stt.device })}>
+            <option value="auto">자동 (GPU 우선)</option>
+            <option value="cuda">GPU</option>
+            <option value="cpu">CPU</option>
+          </select>
+        </Field>
+      </section>
+      <section className="settings-group"><h3>자막 나누기</h3><LengthFields /></section>
       <p className="note">모델을 처음 쓸 때는 내려받느라 몇 분 더 걸립니다. 언어 자동 감지나 한국어를 쓰려면 .en이 없는 모델을 고르세요.</p>
     </Dialog>
   )
 }
 
 function RecutDialog() {
-  const store = useStore()
+  const store = useStore.getState()
   return (
     <Dialog
       title="자막 길이 다시 자르기"
+      description="인식된 단어를 기준으로 자막을 다시 나눕니다."
       onClose={() => store.setDialog(null)}
       footer={
         <button className="primary" onClick={() => void store.recut()}>
@@ -141,29 +141,33 @@ function RecutDialog() {
         </button>
       }
     >
-      <LengthFields />
+      <section className="settings-group"><LengthFields /></section>
       <p className="note">음성 인식을 다시 하지 않고 인식된 단어 기준으로 나눕니다.</p>
     </Dialog>
   )
 }
 
 function DictionaryDialog() {
-  const store = useStore()
+  const dictionary = useStore((state) => state.settings.dictionary)
+  const hasClips = useStore((state) => state.clips.length > 0)
+  const store = useStore.getState()
   return (
     <Dialog
       title="단어 사전"
+      description="자주 쓰는 용어와 인식 결과의 교정 규칙을 등록하세요."
       onClose={() => store.setDialog(null)}
       footer={
-        <button className="primary" disabled={store.clips.length === 0} onClick={store.applyDictionaryNow}>
+        <button className="primary" disabled={!hasClips} onClick={store.applyDictionaryNow}>
           현재 자막에 적용
         </button>
       }
     >
       <textarea
         className="dictionary"
+        aria-label="단어 사전 내용"
         placeholder={'RESTful\nKubernetes\nrest full => RESTful'}
         spellCheck={false}
-        value={store.settings.dictionary}
+        value={dictionary}
         onChange={(event) => store.updateSettings({ dictionary: event.target.value })}
       />
       <p className="note">한 줄에 하나씩 적습니다. 단어만 적으면 인식할 때 참고하고, 틀린말 =&gt; 바른말 로 적으면 인식 결과도 바꿉니다.</p>
@@ -172,12 +176,13 @@ function DictionaryDialog() {
 }
 
 function ExportDialog() {
-  const store = useStore()
-  const { style } = store.settings
+  const style = useStore((state) => state.settings.style)
+  const store = useStore.getState()
   const change = (value: Partial<typeof style>) => store.updateSettings({ style: { ...style, ...value } })
   return (
     <Dialog
       title="영상 내보내기"
+      description="미리보기에서 확인한 자막을 영상에 넣어 저장합니다."
       onClose={() => store.setDialog(null)}
       footer={
         <button className="primary" onClick={() => void store.exportVideo()}>
@@ -185,19 +190,22 @@ function ExportDialog() {
         </button>
       }
     >
-      <Field label="글꼴">
-        <input value={style.font} onChange={(event) => change({ font: event.target.value })} />
-      </Field>
-      <Field label="글자 크기 (화면 높이 %)">
-        <input type="number" min={2} max={15} step={0.5} value={style.sizePct} onChange={(event) => change({ sizePct: Number(event.target.value) })} />
-      </Field>
-      <Field label="아래 여백 (화면 높이 %)">
-        <input type="number" min={0} max={80} value={style.marginPct} onChange={(event) => change({ marginPct: Number(event.target.value) })} />
-      </Field>
-      <label className="check">
-        <input type="checkbox" checked={style.box} onChange={(event) => change({ box: event.target.checked })} />
-        자막 배경 상자
-      </label>
+      <section className="settings-group">
+        <h3>자막 스타일</h3>
+        <Field label="글꼴">
+          <input value={style.font} onChange={(event) => change({ font: event.target.value })} />
+        </Field>
+        <Field label="글자 크기 (화면 높이 %)">
+          <input type="number" min={2} max={15} step={0.5} value={style.sizePct} onChange={(event) => change({ sizePct: Number(event.target.value) })} />
+        </Field>
+        <Field label="아래 여백 (화면 높이 %)">
+          <input type="number" min={0} max={80} value={style.marginPct} onChange={(event) => change({ marginPct: Number(event.target.value) })} />
+        </Field>
+        <label className="check">
+          <input type="checkbox" checked={style.box} onChange={(event) => change({ box: event.target.checked })} />
+          자막 배경 상자
+        </label>
+      </section>
       <p className="note">변경한 내용은 왼쪽 영상의 자막에 바로 보입니다.</p>
     </Dialog>
   )

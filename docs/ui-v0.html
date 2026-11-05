@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Sub Sync · UI/UX 시안 v0</title>
+  <link rel="icon" href="./assets/sub-sync-brand/app-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./ui-v0.css">
+  <script src="./ui-v0.js" defer></script>
+</head>
+<body data-variant="balanced" data-density="normal" data-state="sample">
+  <div class="editor">
+    <header class="project-bar">
+      <a class="brand" href="./ui-v0.html" aria-label="Sub Sync 시안 처음으로">
+        <img src="./assets/sub-sync-brand/app-icon.svg" width="32" height="32" alt="">
+        <span>Sub Sync</span>
+      </a>
+      <div class="project-identity">
+        <div class="project-name">[프로젝트 이름]<span class="draft-badge">UI 시안 v0</span></div>
+        <span class="project-state" id="project-state">프로젝트를 열면 파일명과 저장 상태를 표시합니다</span>
+      </div>
+      <div class="project-actions" aria-label="프로젝트 도구">
+        <button data-preview="프로젝트 열기">프로젝트 열기</button>
+        <div class="split-button">
+          <button data-preview="프로젝트 저장" title="프로젝트 저장 · Ctrl+S">프로젝트 저장</button>
+          <details class="dropdown">
+            <summary aria-label="프로젝트 저장 옵션" title="프로젝트 저장 옵션">⌄</summary>
+            <div class="dropdown-content">
+              <button data-preview="프로젝트를 다른 이름으로 저장">다른 이름으로 저장 <kbd>Ctrl+Shift+S</kbd></button>
+            </div>
+          </details>
+        </div>
+        <span class="action-divider" aria-hidden="true"></span>
+        <button class="export-button" id="export-open">영상 내보내기 <span aria-hidden="true">↗</span></button>
+      </div>
+    </header>
+
+    <nav class="command-bar" aria-label="자막 작업 도구">
+      <div class="command-group">
+        <button data-preview="영상 열기">영상 열기</button>
+        <button class="primary" id="stt-open">자막 생성</button>
+        <button class="quiet" data-preview="자막 길이">자막 길이</button>
+        <button class="quiet" data-preview="단어 사전">단어 사전</button>
+      </div>
+      <div class="command-group secondary-tools">
+        <button class="quiet" data-preview="SRT 불러오기">SRT 불러오기</button>
+        <div class="split-button">
+          <button class="quiet" data-preview="SRT 저장">SRT 저장</button>
+          <details class="dropdown">
+            <summary aria-label="SRT 저장 옵션" title="SRT 저장 옵션">⌄</summary>
+            <div class="dropdown-content">
+              <button data-preview="SRT를 다른 이름으로 저장">SRT 다른 이름으로 <kbd>Ctrl+Alt+Shift+S</kbd></button>
+            </div>
+          </details>
+        </div>
+        <span class="action-divider" aria-hidden="true"></span>
+        <button class="quiet" id="undo" disabled title="시안에서 수정한 문장 실행 취소">실행 취소</button>
+        <button class="quiet" id="redo" disabled title="시안에서 취소한 문장 다시 실행">다시 실행</button>
+      </div>
+    </nav>
+
+    <main class="workspace" id="workspace">
+      <section class="video-panel" id="video-panel" aria-labelledby="video-title">
+        <header class="pane-header video-header">
+          <h1 id="video-title">영상 미리보기</h1>
+          <span class="pane-meta">[영상 이름 · 해상도 · 길이]</span>
+        </header>
+        <div class="stage">
+          <div class="video-placeholder sample-only">
+            <span class="placeholder-name">[영상]</span>
+            <p>원본 영상이 표시되는 영역</p>
+            <div class="caption"><span id="caption">This is how you master the art of conversation, even if you're shy or introverted.</span></div>
+          </div>
+          <div class="start-state empty-only">
+            <span class="empty-eyebrow">영상에서 자막까지</span>
+            <h2>편집할 영상을 열어주세요</h2>
+            <p>음성을 자막으로 만들고,<br>단어의 타이밍과 문장을 다듬어보세요.</p>
+            <button class="primary large" data-preview="영상 열기">영상 열기</button>
+            <button class="quiet resume" data-preview="프로젝트 열기">이전에 저장한 프로젝트 열기 <span aria-hidden="true">→</span></button>
+          </div>
+        </div>
+        <footer class="transport">
+          <div class="seek-labels"><span>샘플 자막 구간</span><span id="timecode">00:00:00.000</span></div>
+          <input id="seek" class="seekbar" type="range" min="0" max="8.6" step="0.01" value="0" aria-label="샘플 자막 시간 탐색" aria-valuetext="0초">
+          <div class="transport-controls">
+            <div class="playback-actions">
+              <button class="seek-button" id="back" aria-label="1초 뒤로">−1초</button>
+              <button class="play-button" disabled aria-label="재생: 실제 영상 연결 후 사용 가능" title="이 시안에는 실제 영상이 연결되어 있지 않습니다">재생</button>
+              <button class="seek-button" id="forward" aria-label="1초 앞으로">+1초</button>
+            </div>
+            <div class="transport-clock"><strong id="current-clock">00:00.000</strong><span>/ 00:08.600</span></div>
+            <label class="rate-label"><span>재생 속도</span><select id="rate" aria-label="재생 속도 시안"><option>0.5×</option><option>0.75×</option><option selected>1×</option><option>1.25×</option><option>1.5×</option><option>2×</option></select></label>
+          </div>
+        </footer>
+      </section>
+
+      <div class="divider" id="divider" role="separator" tabindex="0" aria-label="영상과 자막 패널 너비 조절" aria-orientation="vertical" aria-controls="video-panel" aria-valuemin="30" aria-valuemax="75" aria-valuenow="58" title="드래그로 너비 조절 · 방향키 이동 · 더블클릭 초기화"></div>
+
+      <section class="subtitle-panel" aria-labelledby="subtitle-title">
+        <header class="pane-header subtitle-header">
+          <div class="panel-title"><h2 id="subtitle-title">자막 편집</h2><span class="count sample-only">3</span></div>
+          <label class="follow"><input type="checkbox" id="follow" checked>재생 위치 따라가기</label>
+        </header>
+        <div class="edit-guide sample-only"><span>문장을 눌러 수정하세요</span><span>단어·파형은 자리 표시자</span></div>
+        <div class="subtitle-scroll sample-only" id="subtitle-scroll">
+          <div id="clips" class="clip-list"></div>
+          <p class="sample-note">제공해주신 SRT 3개 문장을 사용한 시안입니다.<br>짧은 간격을 연결한 표시 시간을 적용했습니다.</p>
+        </div>
+        <div class="subtitle-empty empty-only">
+          <span class="empty-number">01</span>
+          <h3>자막이 여기에 모입니다</h3>
+          <p>영상을 연 뒤 자막을 생성하거나<br>SRT 파일을 불러올 수 있습니다.</p>
+          <div class="empty-workflow"><span>영상 열기</span><span aria-hidden="true">→</span><span>자막 생성</span><span aria-hidden="true">→</span><span>편집·저장</span></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="status-bar">
+      <div class="shortcut-hints"><span><kbd>Space</kbd> 재생·일시정지</span><span><kbd>←</kbd><kbd>→</kbd> 1초 이동</span><span><kbd>Ctrl+S</kbd> 프로젝트 저장</span></div>
+      <button class="preview-info" id="assumptions-open">화면 시안 안내</button>
+    </footer>
+  </div>
+
+  <button class="tweaks-toggle" id="tweaks-toggle" aria-expanded="false" aria-controls="tweaks">Tweaks <span aria-hidden="true">⌃</span></button>
+  <aside class="tweaks" id="tweaks" aria-labelledby="tweaks-title" hidden>
+    <div class="tweaks-header"><h2 id="tweaks-title">Tweaks</h2><button class="quiet" id="tweaks-close" aria-label="Tweaks 닫기">닫기</button></div>
+    <p>같은 디자인 안에서 읽기와 타이밍의 비중을 비교해보세요.</p>
+    <label>화면 구성<select id="variant"><option value="balanced">균형 · 기본안</option><option value="reading">문장 중심 · 큰 편집 글자</option><option value="timing">타이밍 중심 · 넓은 파형 영역</option></select></label>
+    <label>목록 간격<select id="density"><option value="normal">보통</option><option value="compact">촘촘하게</option></select></label>
+    <label>미리볼 상태<select id="preview-state"><option value="sample">샘플 자막이 있는 화면</option><option value="empty">처음 시작하는 화면</option></select></label>
+    <label class="check"><input id="caption-box" type="checkbox" checked>미리보기 자막 배경</label>
+    <button class="reset-preview" id="reset-preview">시안 기본값으로</button>
+  </aside>
+
+  <dialog class="preview-dialog" id="assumptions-dialog" aria-labelledby="assumptions-title">
+    <header><h2 id="assumptions-title">UI/UX 첫 시안</h2><button class="quiet" data-close aria-label="안내 닫기">닫기</button></header>
+    <p>승인한 디자인 방향을 확인하기 위한 화면입니다.</p>
+    <ul class="assumptions-list">
+      <li>어두운 배경, 청록색 강조, 좌우 편집 구조를 유지합니다.</li>
+      <li>기존 앱 아이콘과 제공해주신 SRT 문장을 사용했습니다.</li>
+      <li>영상·단어별 시간·파형은 실제 데이터 연결 전 자리 표시자입니다.</li>
+      <li>카드 번호, 시간 탐색, 문장 수정, 실행 취소·다시 실행, 패널 너비 조절을 체험할 수 있습니다.</li>
+      <li>파일 열기·저장과 Whisper 실행은 화면 확인 후 실제 앱에 연결합니다.</li>
+      <li>Tweaks는 시안 비교용이며, 최종 앱에 상시 노출할 도구가 아닙니다.</li>
+    </ul>
+    <footer><button class="primary" data-close>화면으로 돌아가기</button></footer>
+  </dialog>
+
+  <dialog class="preview-dialog settings-dialog" id="stt-dialog" aria-labelledby="stt-title">
+    <header><div><span class="dialog-kicker">영상에서 자막으로</span><h2 id="stt-title">자막 생성</h2></div><button class="quiet" data-close>닫기</button></header>
+    <section class="settings-group"><h3>음성 인식</h3><label>Whisper 모델<select><option>large-v3-turbo</option><option>large-v3</option><option>medium</option><option>small</option></select></label><label>언어<select><option>영어</option><option>한국어</option><option>자동 감지</option></select></label><label>실행 장치<select><option>자동 (GPU 우선)</option><option>GPU</option><option>CPU</option></select></label></section>
+    <section class="settings-group"><h3>자막 나누기</h3><div class="preset-row" role="group" aria-label="자막 길이 시안"><button>짧게</button><button>보통</button><button class="selected" aria-pressed="true">길게</button><button>문장 단위</button></div><p class="muted">[최대 글자 수 · 시간 · 문장 분할 설정]</p></section>
+    <p class="note">설정창 구성 시안입니다. 실제 음성 인식은 실행되지 않습니다.</p>
+    <footer><button data-close>닫기</button><button class="primary" data-preview="Whisper 실행">자막 생성 시작</button></footer>
+  </dialog>
+
+  <dialog class="preview-dialog settings-dialog" id="export-dialog" aria-labelledby="export-title">
+    <header><h2 id="export-title">영상 내보내기</h2><button class="quiet" data-close>닫기</button></header>
+    <section class="settings-group"><h3>자막 스타일</h3><p class="muted">[글꼴 · 글자 크기 · 아래 여백 · 배경 설정]</p></section>
+    <p class="note">기존 내보내기 설정을 이곳에 연결합니다. 시안에서는 파일이 생성되지 않습니다.</p>
+    <footer><button data-close>닫기</button><button class="primary" data-preview="영상 내보내기">내보내기</button></footer>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>
