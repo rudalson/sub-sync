@@ -6,7 +6,7 @@ const api = {
   pickMedia: vi.fn(), openMedia: vi.fn(), loadPeaks: vi.fn(), loadProject: vi.fn(),
   pickProject: vi.fn(), saveProject: vi.fn(), autosaveProject: vi.fn(),
   saveSettings: vi.fn(), loadSettings: vi.fn(), onProgress: vi.fn(),
-  startStt: vi.fn(), saveSrt: vi.fn(), closeWindow: vi.fn(), confirm: vi.fn()
+  startStt: vi.fn(), onSttEvent: vi.fn(), saveSrt: vi.fn(), closeWindow: vi.fn(), confirm: vi.fn()
 }
 
 let useStore: typeof import('../src/renderer/src/store').useStore
@@ -44,6 +44,14 @@ afterEach(async () => {
 })
 
 describe('project editing session', () => {
+  it('releases the progress overlay when starting the native STT process fails', async () => {
+    await useStore.getState().openMedia()
+    api.onSttEvent.mockReturnValue(vi.fn())
+    api.startStt.mockRejectedValue(new Error('Python 환경이 없습니다.'))
+    await useStore.getState().transcribe()
+    expect(useStore.getState().job).toBeNull()
+    expect(useStore.getState().message).toContain('Python 환경')
+  })
   it('saves SRT with connected display timing while preserving editable speech anchors', async () => {
     await useStore.getState().openMedia()
     const clips = makeProject().clips

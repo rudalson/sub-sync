@@ -1,4 +1,4 @@
-"""Local speech-to-text sidecar for the Electron app.
+"""Local speech-to-text worker for the Tauri app.
 
 Writes one JSON object per line to stdout:
   {"type": "status",   "message": str, "device": str | None}

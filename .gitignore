@@ -4,3 +4,10 @@ dist/
 backend/.venv/
 __pycache__/
 *.subsync.json
+!tests/fixtures/*.subsync.json
+src-tauri/target/
+src-tauri/gen/
+.cargo-home/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/*Logo.png

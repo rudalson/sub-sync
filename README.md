@@ -1,10 +1,12 @@
 # Sub Sync
 
-외국어 영상을 로컬 Whisper로 받아쓰고, 단어 단위 파형을 보며 자막 싱크를 맞추는 Windows 데스크톱 편집기입니다.
+외국어 영상을 로컬 Whisper로 받아쓰고, 단어 단위 파형을 보며 자막 싱크를 맞추는 Windows 데스크톱 편집기입니다. Rust + Tauri 2 실행부와 React 편집 화면으로 구성되며, 시스템 WebView2를 사용합니다.
 
 ## 준비물
 
-- Node.js 20 이상
+- Node.js 22.12 이상 (개발·빌드용)
+- Rust stable, MSVC 빌드 도구 (Visual Studio Build Tools의 Desktop development with C++)
+- Windows WebView2 Runtime (Windows 11에는 기본 포함)
 - Python 3.10~3.12
 - PATH에 등록된 ffmpeg, ffprobe (자막을 영상에 입히려면 libass 포함 빌드)
 - NVIDIA GPU (없으면 CPU로 자동 전환되며 훨씬 느립니다)
@@ -14,10 +16,27 @@
 ```powershell
 npm install
 npm run setup:backend   # backend/.venv에 faster-whisper 설치
-npm start               # 빌드 후 실행
+npm run dev             # Tauri + Vite 개발 실행
+npm start               # 최적화된 Rust 릴리스 빌드 후 실행
+npm run build           # 최적화된 Rust 실행 파일 생성
+npm run build:portable  # 압축을 풀어 실행할 Windows ZIP 생성
+npm run build:installer # Windows NSIS 설치 파일 생성 (설치 도구 다운로드 필요)
 ```
 
-개발 중에는 `npm run dev`로 실행합니다. Whisper 모델은 처음 사용할 때 자동으로 내려받습니다 (large-v3-turbo 약 1.6GB).
+초기 Rust 빌드는 몇 분 걸릴 수 있습니다. 실행 파일은 `src-tauri/target/release/sub-sync.exe`, 포터블 ZIP은 `src-tauri/target/release/sub-sync-portable.zip`, NSIS 설치 파일은 `src-tauri/target/release/bundle/nsis/`에 생성됩니다. ZIP을 모두 풀어 실행하거나 실행 파일과 빌드된 `backend/` 리소스를 함께 제공하세요. 설치 파일 생성은 추가 빌드 도구를 내려받을 수 있는 환경이 필요합니다.
+
+Whisper 모델은 처음 사용할 때 자동으로 내려받습니다 (large-v3-turbo 약 1.6GB). 앱 본체에는 Python 환경·CUDA·Whisper 모델·FFmpeg를 포함하지 않으므로 이 구성 요소들의 설치 용량과 추론 메모리는 별도로 필요합니다. FFmpeg와 ffprobe는 PATH에 등록해야 합니다.
+
+설치형 앱에서 사용할 Whisper 환경은 이 저장소에서 `npm run setup:backend:installed`로 준비할 수 있습니다. 이 명령은 `%APPDATA%/dev.subsync.editor/backend/.venv`에 환경을 만듭니다. 기존 환경을 사용하려면 `SUB_SYNC_PYTHON`을 Python 실행 파일의 절대 경로로 지정하세요. 개발 중에는 기존 `backend/.venv`를 그대로 사용합니다. `SUB_SYNC_FFMPEG`와 `SUB_SYNC_FFPROBE`로 각 실행 파일 경로도 지정할 수 있습니다.
+
+## 긴 영상 처리
+
+- 영상은 요청한 구간을 최대 2MB 단위로 읽어 재생하고 탐색합니다. 전체 영상 파일을 메모리로 읽지 않습니다.
+- 파형은 FFmpeg의 PCM 스트림을 순차 처리해 초당 100개 피크만 보관하며, 이진 IPC로 화면에 전달합니다.
+- 파형과 재생용 변환 영상은 앱 데이터 폴더에 캐시합니다. 자막 목록은 기존 가상 스크롤을 유지합니다.
+- 일시정지 중에는 매 프레임 재생 위치를 갱신하지 않습니다. 재생·탐색 이벤트에서 필요한 갱신만 수행합니다.
+
+실제 재생 성능은 영상 코덱·해상도·저장 장치·WebView2의 디코딩 성능에도 영향을 받습니다. Rust 전환 자체가 Whisper 추론 속도를 높이지는 않습니다.
 
 ## 사용 순서
 
@@ -70,8 +89,9 @@ SRT를 불러오면 각 자막의 글자 칸과 시간이 SRT 내용으로 바�
 | 경로 | 역할 |
 | --- | --- |
 | `src/shared` | SRT, 자막 자르기, 덮어쓰기, 편집, ASS 생성 (순수 함수, `tests`에서 검증) |
-| `src/main` | Electron 메인 프로세스: 파일, ffmpeg, Whisper 실행, `media://` 스트리밍 |
+| `src-tauri/src` | Rust 실행부: 프로젝트·설정 파일, FFmpeg·Whisper 프로세스, 영상 구간 읽기 |
 | `src/renderer` | React UI |
+| `src/renderer/src/api.ts` | Tauri 명령·이벤트와 기존 편집기 API 연결 |
 | `backend/transcribe.py` | faster-whisper 실행, 결과를 JSON 줄로 출력 |
 
-`npm test`로 단위 테스트, `npm run typecheck`로 타입 검사를 실행합니다.
+`npm test`로 프런트엔드·자막 테스트, `npm run typecheck`로 타입 검사, `npm run test:rust`로 Rust·FFmpeg 통합 테스트, `npm run check:rust`로 Rust 정적 검사를 실행합니다. Rust 테스트에는 실제 FFmpeg를 사용한 영상 열기·변환 캐시·파형·자막 합성·취소와 4GB 영상의 구간 읽기 검증이 포함됩니다.

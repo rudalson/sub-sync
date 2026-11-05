@@ -2,18 +2,27 @@
   "name": "sub-sync",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Local Whisper subtitle sync editor",
-  "main": "out/main/index.js",
   "scripts": {
     "setup:backend": "node scripts/setup-backend.mjs",
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
-    "start": "electron-vite preview",
+    "setup:backend:installed": "node scripts/setup-backend.mjs --app-data",
+    "dev": "tauri dev",
+    "dev:web": "vite --host 127.0.0.1 --port 1420",
+    "build": "tauri build --no-bundle",
+    "build:installer": "tauri build",
+    "build:portable": "node scripts/package-portable.mjs",
+    "build:web": "vite build",
+    "build:app": "tauri build --no-bundle",
+    "start": "node scripts/start.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "check:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.26",
+    "@tauri-apps/api": "^2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zustand": "^5.0.16"
@@ -22,9 +31,8 @@
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@tauri-apps/cli": "^2",
     "@vitejs/plugin-react": "^6.2.1",
-    "electron": "^45.2.2",
-    "electron-vite": "^6.0.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.1.0"

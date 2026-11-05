@@ -35,7 +35,9 @@
 ## 프로젝트 기본 가이드
 
 - **프로젝트명**: Sub Sync (로컬 Whisper 기반 자막 싱크 편집기)
-- **스택**: Electron, React 19, TypeScript, Zustand, Vite, Python (faster-whisper), FFmpeg
+- **스택**: Tauri 2, Rust, React 19, TypeScript, Zustand, Vite, Python (faster-whisper), FFmpeg
 - **테스트 및 검사**:
   - `npm run typecheck`: TypeScript 타입 검사
   - `npm test`: 단위 테스트 실행
+  - `npm run test:rust`: Rust 테스트 및 FFmpeg 통합 테스트 (FFmpeg 필요)
+  - `npm run check:rust`: Rust Clippy 정적 검사

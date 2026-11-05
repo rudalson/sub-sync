@@ -136,7 +136,10 @@ export const useStore = create<State>((set, get) => {
     const words: Word[] = []
 
     await new Promise<void>((resolve) => {
+      let finished = false
       const finish = (message: string | null = null) => {
+        if (finished) return
+        finished = true
         unsubscribe()
         set({ job: null, message })
         resolve()
@@ -174,7 +177,7 @@ export const useStore = create<State>((set, get) => {
         }
       })
       setJob('음성 인식 준비 중', null)
-      void api.startStt(media.path, settings.stt, dictionary.hotwords)
+      void api.startStt(media.path, settings.stt, dictionary.hotwords).catch((error) => finish(`음성 인식 실패: ${errorText(error)}`))
     })
   }
 

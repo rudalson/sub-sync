@@ -1,0 +1,373 @@
+use crate::{
+    backend::{self, Backend, PeakAccumulator},
+    files,
+    project::{self, SavedProject},
+    stream,
+};
+use std::sync::Arc;
+use std::{
+    fs,
+    io::{Seek, SeekFrom, Write},
+    path::PathBuf,
+    sync::{atomic::Ordering, Mutex},
+};
+use tauri::http::Request;
+use uuid::Uuid;
+
+struct TestDirectory(PathBuf);
+impl TestDirectory {
+    fn new() -> Self {
+        let path = std::env::temp_dir().join(format!("sub-sync-rust-test-{}", Uuid::new_v4()));
+        fs::create_dir(&path).unwrap();
+        Self(path)
+    }
+}
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        assert_eq!(self.0.parent(), Some(std::env::temp_dir().as_path()));
+        assert!(self
+            .0
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("sub-sync-rust-test-"));
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+fn fixture() -> project::ProjectFile {
+    let SavedProject::Current(project) =
+        project::parse(include_str!("../../tests/fixtures/project-v2.json")).unwrap()
+    else {
+        panic!()
+    };
+    *project
+}
+#[test]
+fn electron_project_format_round_trips_without_losing_anchors() {
+    let project = fixture();
+    let bytes = serde_json::to_string(&project).unwrap();
+    let restored = project::parse(&bytes).unwrap();
+    assert_eq!(
+        serde_json::to_value(restored).unwrap(),
+        serde_json::to_value(project).unwrap()
+    );
+}
+#[test]
+fn legacy_projects_and_bom_are_supported() {
+    let source = serde_json::json!({"version":1, "mediaSize":4096, "clips":fixture().clips});
+    let restored = project::parse(&format!("\u{feff}{source}")).unwrap();
+    assert_eq!(restored.size(), 4096);
+    assert!(matches!(restored, SavedProject::Legacy(_)));
+}
+#[test]
+fn invalid_versions_and_corrupt_fields_are_rejected() {
+    assert!(project::parse("{broken").is_err());
+    let mut value = serde_json::to_value(fixture()).unwrap();
+    value["version"] = 99.into();
+    assert!(project::parse(&value.to_string()).is_err());
+    value["version"] = 2.into();
+    value["waveform"]["peaks"][0] = 256.into();
+    assert!(project::parse(&value.to_string()).is_err());
+    value["waveform"]["peaks"][0] = 0.into();
+    value["clips"][0]["words"][0]["start"] = (-1).into();
+    assert!(project::parse(&value.to_string()).is_err());
+}
+#[test]
+fn atomic_project_save_replaces_and_keeps_previous_file_on_failure() {
+    let dir = TestDirectory::new();
+    let target = dir.0.join("편집.subsync.json");
+    let mut project = fixture();
+    project.media.path = dir.0.join("원본.mp4").to_string_lossy().into_owned();
+    project::write(&target, &project).unwrap();
+    project.clips[0].text = "다음 편집".into();
+    project::write(&target, &project).unwrap();
+    let saved = fs::read(&target).unwrap();
+    project.clips[0].end = 0.0;
+    assert!(project::write(&target, &project).is_err());
+    assert_eq!(fs::read(&target).unwrap(), saved);
+    assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+}
+#[test]
+fn failed_replacement_cleans_up_only_its_own_staging_file() {
+    let dir = TestDirectory::new();
+    let directory = dir.0.join("directory");
+    fs::create_dir(&directory).unwrap();
+    assert!(files::atomic_write(&directory, b"data").is_err());
+    assert!(directory.is_dir());
+    assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 1);
+}
+#[test]
+fn original_video_cannot_be_overwritten() {
+    let dir = TestDirectory::new();
+    let video = dir.0.join("source.mp4");
+    fs::write(&video, b"original").unwrap();
+    let mut project = fixture();
+    project.media.path = video.to_string_lossy().into_owned();
+    assert!(project::write(&video, &project).is_err());
+    assert_eq!(fs::read(video).unwrap(), b"original");
+}
+#[test]
+fn moved_project_prefers_relative_video_and_can_fall_back_to_original() {
+    let dir = TestDirectory::new();
+    let original = dir.0.join("video.mp4");
+    fs::write(&original, b"video").unwrap();
+    let project_path = dir.0.join("work.subsync.json");
+    let mut project = fixture();
+    project.media.path = original.to_string_lossy().into_owned();
+    project.media.size = 5;
+    project::write(&project_path, &project).unwrap();
+    let saved = project::read(&project_path).unwrap();
+    let moved = dir.0.join("moved");
+    fs::create_dir(&moved).unwrap();
+    let moved_project = moved.join("work.subsync.json");
+    assert_eq!(
+        project::find_media(&moved_project, &saved),
+        Some(original.clone())
+    );
+    fs::write(moved.join("video.mp4"), b"video").unwrap();
+    assert_eq!(
+        project::find_media(&moved_project, &saved),
+        Some(moved.join("video.mp4"))
+    );
+    fs::write(&original, b"different size").unwrap();
+    fs::remove_file(moved.join("video.mp4")).unwrap();
+    assert!(project::find_media(&moved_project, &saved).is_none());
+}
+#[test]
+fn linked_video_metadata_must_match() {
+    let project = fixture();
+    let mut media = project::MediaInfo {
+        source: project.media.clone(),
+        url: "token".into(),
+    };
+    let saved = SavedProject::Current(Box::new(project));
+    assert!(saved.validate_media(&media).is_ok());
+    media.source.duration += 1.0;
+    assert!(saved.validate_media(&media).is_err());
+}
+#[test]
+fn subtitle_decoding_preserves_utf8_utf16_and_cp949() {
+    assert_eq!(files::decode_subtitle("안녕".as_bytes()).unwrap(), "안녕");
+    assert_eq!(
+        files::decode_subtitle(&[0xff, 0xfe, 0x48, 0xc5, 0x55, 0xb1]).unwrap(),
+        "안녕"
+    );
+    assert_eq!(
+        files::decode_subtitle(&[0xfe, 0xff, 0xc5, 0x48, 0xb1, 0x55]).unwrap(),
+        "안녕"
+    );
+    #[cfg(windows)]
+    assert_eq!(
+        files::decode_subtitle(&[0xbe, 0xc8, 0xb3, 0xe7]).unwrap(),
+        "안녕"
+    );
+}
+#[test]
+fn waveform_processing_handles_odd_chunk_boundaries_and_preserves_peak_rate() {
+    let samples: Vec<u8> = [i16::MIN, 8192, 0]
+        .into_iter()
+        .flat_map(|value| (0..40).flat_map(move |_| value.to_le_bytes()))
+        .collect();
+    let mut whole = PeakAccumulator::default();
+    whole.push(&samples);
+    let mut chunked = PeakAccumulator::default();
+    for chunk in samples.chunks(7) {
+        chunked.push(chunk);
+    }
+    assert_eq!(whole.finish(), vec![255, 128, 0]);
+    assert_eq!(chunked.finish(), vec![255, 128, 0]);
+}
+#[test]
+fn media_ranges_support_seek_suffix_and_unsatisfiable_requests() {
+    assert_eq!(
+        stream::byte_range(Some("bytes=10-20"), 100).unwrap(),
+        (10, 20)
+    );
+    assert_eq!(
+        stream::byte_range(Some("bytes=-10"), 100).unwrap(),
+        (90, 99)
+    );
+    assert_eq!(
+        stream::byte_range(Some("bytes=95-"), 100).unwrap(),
+        (95, 99)
+    );
+    for range in [
+        "bytes=100-",
+        "bytes=20-10",
+        "bytes=-0",
+        "bytes=0-1,3-4",
+        "invalid",
+    ] {
+        assert!(stream::byte_range(Some(range), 100).is_err());
+    }
+}
+#[test]
+fn multi_gigabyte_video_responses_never_read_more_than_two_megabytes() {
+    let dir = TestDirectory::new();
+    let path = dir.0.join("large.mp4");
+    let size = 4 * 1024 * 1024 * 1024u64;
+    let mut file = fs::File::create(&path).unwrap();
+    file.set_len(size).unwrap();
+    file.seek(SeekFrom::Start(size - 4)).unwrap();
+    file.write_all(b"tail").unwrap();
+    drop(file);
+    let first = stream::serve(&path, &Request::builder().body(Vec::new()).unwrap()).unwrap();
+    assert_eq!(first.status(), 206);
+    assert_eq!(first.body().len(), stream::MAX_CHUNK as usize);
+    let tail = stream::serve(
+        &path,
+        &Request::builder()
+            .header("Range", "bytes=-4")
+            .body(Vec::new())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(tail.body(), b"tail");
+    assert_eq!(
+        tail.headers()["Content-Range"],
+        format!("bytes {}-{}/{size}", size - 4, size - 1)
+    );
+    let head = stream::serve(
+        &path,
+        &Request::builder().method("HEAD").body(Vec::new()).unwrap(),
+    )
+    .unwrap();
+    assert!(head.body().is_empty());
+}
+#[test]
+fn only_opened_media_can_be_processed_and_job_cancellation_is_scoped() {
+    let dir = TestDirectory::new();
+    let state = Backend::new(dir.0.join("data"), dir.0.clone()).unwrap();
+    let video = dir.0.join("video.mp4");
+    fs::write(&video, b"video").unwrap();
+    assert!(state.require_media(&video).is_err());
+    state.allow(&video).unwrap();
+    assert!(state.require_media(&video).is_ok());
+    let slot = Mutex::new(None);
+    let (id, flag) = backend::begin(&slot).unwrap();
+    assert!(backend::begin(&slot).is_err());
+    backend::cancel(&slot);
+    assert!(flag.load(Ordering::Relaxed));
+    backend::finish(&slot, Uuid::new_v4());
+    assert!(slot.lock().unwrap().is_some());
+    backend::finish(&slot, id);
+    assert!(backend::begin(&slot).is_ok());
+}
+
+fn generated_video(dir: &TestDirectory, name: &str, codec: &str, container: &str) -> PathBuf {
+    let path = dir.0.join(name);
+    let output = backend::command("ffmpeg")
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=160x90:r=10",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=16000",
+            "-t",
+            "1",
+            "-c:v",
+            codec,
+            "-c:a",
+            "aac",
+            "-f",
+            container,
+        ])
+        .arg(&path)
+        .output()
+        .expect("FFmpeg must be installed for native media integration tests");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    path
+}
+#[test]
+fn real_media_open_waveform_cache_and_subtitle_export_work_together() {
+    let dir = TestDirectory::new();
+    let source = generated_video(&dir, "원본 영상.mp4", "libx264", "mp4");
+    let original = fs::read(&source).unwrap();
+    let state = Arc::new(Backend::new(dir.0.join("data"), dir.0.clone()).unwrap());
+    let media = backend::open_media(&state, None, &source).unwrap();
+    assert_eq!((media.source.width, media.source.height), (160, 90));
+    assert!((media.source.duration - 1.0).abs() < 0.1);
+    assert_eq!(state.streams.read().unwrap().get(&media.url), Some(&source));
+    let peaks = backend::load_peaks(&state, &source).unwrap();
+    assert!((100..=110).contains(&peaks.len()));
+    assert_eq!(peaks.iter().max(), Some(&255));
+    assert_eq!(backend::load_peaks(&state, &source).unwrap(), peaks);
+    let output = dir.0.join("자막 결과.mp4");
+    let ass = "[Script Info]\nScriptType: v4.00+\nPlayResX: 160\nPlayResY: 90\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Default,Arial,12,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,5,5,5,1\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,Sub Sync\n";
+    let request = || backend::ExportRequest {
+        media_path: source.to_string_lossy().into_owned(),
+        output_path: output.to_string_lossy().into_owned(),
+        ass: ass.into(),
+        duration: 1.0,
+    };
+    backend::export_video(state.clone(), None, request()).unwrap();
+    let exported = fs::read(&output).unwrap();
+    assert!(exported.len() > 1000);
+    let mut invalid = request();
+    invalid.ass = "broken ASS".into();
+    assert!(backend::export_video(state.clone(), None, invalid).is_err());
+    assert_eq!(fs::read(&output).unwrap(), exported);
+    assert_eq!(fs::read(&source).unwrap(), original);
+    assert!(!fs::read_dir(&dir.0).unwrap().any(|entry| entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".sub-sync-")));
+}
+#[test]
+fn incompatible_video_is_converted_once_and_reuses_the_proxy() {
+    let dir = TestDirectory::new();
+    let source = generated_video(&dir, "source.mkv", "ffv1", "matroska");
+    let state = Backend::new(dir.0.join("data"), dir.0.clone()).unwrap();
+    let first = backend::open_media(&state, None, &source).unwrap();
+    let proxy = state.streams.read().unwrap()[&first.url].clone();
+    assert_ne!(proxy, source);
+    assert_eq!(proxy.extension().unwrap(), "mp4");
+    let modified = fs::metadata(&proxy).unwrap().modified().unwrap();
+    let second = backend::open_media(&state, None, &source).unwrap();
+    assert_eq!(state.streams.read().unwrap()[&second.url], proxy);
+    assert_eq!(fs::metadata(proxy).unwrap().modified().unwrap(), modified);
+}
+#[test]
+fn cancelling_an_active_ffmpeg_job_waits_for_process_exit() {
+    let dir = TestDirectory::new();
+    let state = Backend::new(dir.0.join("data"), dir.0.clone()).unwrap();
+    let stage = files::StagedFile::new(&dir.0, "mp4").unwrap();
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = cancel.clone();
+    let trigger = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        flag.store(true, Ordering::Relaxed);
+    });
+    let args: Vec<String> = [
+        "-re",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=s=160x90:r=10",
+        "-t",
+        "3600",
+        "-c:v",
+        "libx264",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .chain(Some(stage.path.to_string_lossy().into_owned()))
+    .collect();
+    let started = std::time::Instant::now();
+    let result = backend::ffmpeg(&state, None, &args, None, 3600.0, &cancel);
+    trigger.join().unwrap();
+    assert!(result.unwrap_err().contains("취소"));
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}

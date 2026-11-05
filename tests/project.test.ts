@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { parseProject, serializeProject, validateProject } from '../src/shared/project'
 import { makeProject } from './fixtures/project'
 
 describe('project format', () => {
+  it('shares the persisted project fixture with the Rust implementation', () => {
+    const source = readFileSync(new URL('./fixtures/project-v2.json', import.meta.url), 'utf8')
+    expect(parseProject(source)).toEqual(makeProject())
+  })
   it('round-trips edited subtitles, exact word timings, confidence, waveform, settings and playback', () => {
     const project = makeProject()
     expect(parseProject(serializeProject(project))).toEqual(project)

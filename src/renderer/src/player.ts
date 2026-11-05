@@ -15,14 +15,35 @@ let frame = 0
 let pendingPlayback: { time: number; rate: number } | null = null
 
 function tick() {
-  if (video && !pendingPlayback) usePlayback.setState({ time: video.currentTime })
-  frame = requestAnimationFrame(tick)
+  syncTime()
+  if (video && !video.paused && !video.ended) frame = requestAnimationFrame(tick)
 }
 
+function syncTime() {
+  if (video && !pendingPlayback && video.currentTime !== usePlayback.getState().time) {
+    usePlayback.setState({ time: video.currentTime })
+  }
+}
+function startClock() {
+  cancelAnimationFrame(frame)
+  tick()
+}
+function stopClock() {
+  cancelAnimationFrame(frame)
+  syncTime()
+}
 export function attachVideo(element: HTMLVideoElement | null) {
+  video?.removeEventListener('play', startClock)
+  video?.removeEventListener('pause', stopClock)
+  video?.removeEventListener('seeked', syncTime)
   video = element
   cancelAnimationFrame(frame)
-  if (element) frame = requestAnimationFrame(tick)
+  if (element) {
+    element.addEventListener('play', startClock)
+    element.addEventListener('pause', stopClock)
+    element.addEventListener('seeked', syncTime)
+    if (!element.paused) startClock()
+  }
 }
 
 /** Hold the saved position until the new video's metadata is available, including reopening the same video. */

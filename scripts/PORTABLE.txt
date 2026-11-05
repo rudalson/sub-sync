@@ -1,0 +1,17 @@
+Sub Sync — Windows portable build
+
+압축을 모두 푼 뒤 sub-sync.exe를 실행하세요.
+backend 폴더를 실행 파일 옆에 그대로 두세요.
+
+실행 환경:
+- Windows WebView2 Runtime
+- PATH에 등록된 ffmpeg와 ffprobe (자막 영상 내보내기는 libass 지원 필요)
+- STT를 사용할 때만 faster-whisper가 설치된 Python 환경과 Whisper 모델이 필요합니다.
+
+기존 프로젝트와 SRT는 그대로 열 수 있습니다.
+현재 저장소에서 작업하던 PC에서는 기존 backend/.venv를 사용합니다.
+설치형/다른 PC용 환경은 저장소에서 npm run setup:backend:installed로 준비하거나,
+SUB_SYNC_PYTHON 환경 변수에 기존 Python 실행 파일의 절대 경로를 지정하세요.
+SUB_SYNC_FFMPEG와 SUB_SYNC_FFPROBE로 FFmpeg 실행 파일 경로도 지정할 수 있습니다.
+
+Whisper 모델, Python, CUDA, FFmpeg는 이 ZIP에 포함하지 않습니다.
