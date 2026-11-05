@@ -191,9 +191,16 @@ pub async fn load_project(
         state.require_media(Path::new(&media_path))?;
         let _lock = state.writes.lock().unwrap();
         let path = project::autosave_path(&media_path);
-        if !path.exists() {
-            return Ok(None);
-        }
+        let path = if path.exists() {
+            path
+        } else {
+            let legacy = PathBuf::from(format!("{media_path}.subsync.json"));
+            if legacy.exists() {
+                legacy
+            } else {
+                return Ok(None);
+            }
+        };
         let project = project::read(&path)?;
         if project.size() != fs::metadata(media_path).map_err(|e| e.to_string())?.len() {
             return Err("자동 저장된 프로젝트와 영상 크기가 다릅니다.".into());

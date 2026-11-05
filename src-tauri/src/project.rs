@@ -230,7 +230,16 @@ pub fn read(path: &Path) -> Result<SavedProject, String> {
     parse(&fs::read_to_string(path).map_err(|e| e.to_string())?)
 }
 pub fn autosave_path(media: &str) -> PathBuf {
-    PathBuf::from(format!("{media}.subsync.json"))
+    let path = Path::new(media);
+    if let (Some(parent), Some(stem)) = (path.parent(), path.file_stem()) {
+        if parent.as_os_str().is_empty() {
+            PathBuf::from(format!("{}.subsync.json", stem.to_string_lossy()))
+        } else {
+            parent.join(format!("{}.subsync.json", stem.to_string_lossy()))
+        }
+    } else {
+        PathBuf::from(format!("{media}.subsync.json"))
+    }
 }
 fn relative_path(target: &Path, base: &Path) -> Option<PathBuf> {
     let target: Vec<_> = target.components().collect();
@@ -282,7 +291,11 @@ pub fn find_media(path: &Path, project: &SavedProject) -> Option<PathBuf> {
         }
         SavedProject::Legacy(_) => {
             if let Some(original) = path.to_string_lossy().strip_suffix(".subsync.json") {
-                candidates.push(PathBuf::from(original));
+                let candidate = PathBuf::from(original);
+                candidates.push(candidate.clone());
+                for ext in ["mp4", "mkv", "webm", "avi", "mov"] {
+                    candidates.push(candidate.with_extension(ext));
+                }
             }
         }
     }

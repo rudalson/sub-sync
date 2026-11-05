@@ -22,6 +22,7 @@ const api = window.api
 const HISTORY_LIMIT = 100
 
 let restoringProject = false
+let savingProject = false
 
 export type DialogName = 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary'
 
@@ -93,6 +94,7 @@ function fontLineRatio(font: string): number {
 
 const allWords = (clips: Clip[]): Word[] => clips.flatMap((clip) => clip.words)
 const stripExtension = (path: string) => path.replace(/\.[^./\\]+$/, '')
+const cleanProjectPath = (path: string) => path.replace(/\.(mp4|mkv|webm|avi|mov|m4v|flv|wmv)\.subsync\.json$/i, '.subsync.json')
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 export const useStore = create<State>((set, get) => {
@@ -227,44 +229,51 @@ export const useStore = create<State>((set, get) => {
 
     async openMedia() {
       if (get().job) return
-      set({ job: { label: '영상 준비 중', progress: null } })
       try {
         const path = await api.pickMedia()
         if (!path) return
-        await flushAutosave()
-        const media = await api.openMedia(path)
-        const project = await api.loadProject(path)
-        await applyProject(media, project, null)
+        set({ job: { label: '영상 준비 중', progress: null } })
+        try {
+          await flushAutosave()
+          const media = await api.openMedia(path)
+          const project = await api.loadProject(path)
+          await applyProject(media, project, null)
+        } finally {
+          set({ job: null })
+        }
       } catch (error) {
         set({ message: `영상을 열 수 없습니다: ${errorText(error)}` })
-      } finally {
-        set({ job: null })
       }
     },
 
     async openProject() {
       if (get().job) return
-      set({ job: { label: '프로젝트 불러오는 중', progress: null } })
       try {
         await flushAutosave()
         const opened = await api.pickProject()
-        if (opened) await applyProject(opened.media, opened.project, opened.path)
+        if (!opened) return
+        set({ job: { label: '프로젝트 불러오는 중', progress: null } })
+        try {
+          await applyProject(opened.media, opened.project, opened.path)
+        } finally {
+          set({ job: null })
+        }
       } catch (error) {
         set({ message: `프로젝트를 열 수 없습니다: ${errorText(error)}` })
-      } finally {
-        set({ job: null })
       }
     },
 
     async saveProject(saveAs = false) {
       const state = get()
-      if (!state.media || state.job) return
-      set({ job: { label: '프로젝트 저장 중', progress: null } })
+      if (!state.media || state.job || savingProject) return
+      savingProject = true
       try {
         // A protected video folder must not prevent saving a named project in another folder.
         await flushAutosave().catch(() => {})
         const project = projectSnapshot(get())!
-        const path = await api.saveProject(project, saveAs ? null : state.projectPath, state.projectPath ?? `${stripExtension(state.media.path)}.subsync.json`)
+        const defaultPath = cleanProjectPath(state.projectPath ?? `${stripExtension(state.media.path)}.subsync.json`)
+        const targetPath = saveAs ? null : (state.projectPath ? cleanProjectPath(state.projectPath) : null)
+        const path = await api.saveProject(project, targetPath, defaultPath)
         if (path && get().mediaSession === state.mediaSession) {
           const current = get()
           const playback = usePlayback.getState()
@@ -286,7 +295,7 @@ export const useStore = create<State>((set, get) => {
       } catch (error) {
         set({ message: `프로젝트 저장 실패: ${errorText(error)}` })
       } finally {
-        set({ job: null })
+        savingProject = false
       }
     },
 

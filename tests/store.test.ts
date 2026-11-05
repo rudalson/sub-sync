@@ -182,14 +182,45 @@ describe('project editing session', () => {
     expect(useStore.getState().job).toBeNull()
   })
 
-  it('keeps unsaved changes and the old path if Save As is cancelled', async () => {
+  it('keeps unsaved changes and the old path if Save As is cancelled without showing a progress overlay', async () => {
     await useStore.getState().openMedia()
     await useStore.getState().saveProject()
     useStore.setState({ clips: makeProject().clips })
-    api.saveProject.mockResolvedValue(null)
+    let jobDuringSave: unknown = undefined
+    api.saveProject.mockImplementation(async () => {
+      jobDuringSave = useStore.getState().job
+      return null
+    })
     await useStore.getState().saveProject(true)
+    expect(jobDuringSave).toBeNull()
+    expect(useStore.getState().job).toBeNull()
     expect(useStore.getState().projectPath).toBe('C:\\Projects\\편집.subsync.json')
     expect(useStore.getState().projectDirty).toBe(true)
+  })
+
+  it('ignores concurrent save requests while saving is already in progress', async () => {
+    await useStore.getState().openMedia()
+    let resolveSave!: (path: string) => void
+    const savePromise = new Promise<string>((resolve) => {
+      resolveSave = resolve
+    })
+    api.saveProject.mockImplementation(() => savePromise)
+    const firstSave = useStore.getState().saveProject(true)
+    const secondSave = useStore.getState().saveProject(true)
+    resolveSave('C:\\Projects\\편집.subsync.json')
+    await Promise.all([firstSave, secondSave])
+    expect(api.saveProject).toHaveBeenCalledTimes(1)
+  })
+
+  it('strips video extensions from the default project filename', async () => {
+    await useStore.getState().openMedia()
+    useStore.setState({ projectPath: 'C:\\Videos\\동영상.mp4.subsync.json' })
+    await useStore.getState().saveProject(true)
+    expect(api.saveProject).toHaveBeenLastCalledWith(
+      expect.anything(),
+      null,
+      'C:\\Videos\\동영상.subsync.json'
+    )
   })
 
   it('can save before STT, with an empty subtitle list and no audio', async () => {

@@ -95,6 +95,21 @@ fn invalid_versions_and_corrupt_fields_are_rejected() {
     assert!(project::parse(&value.to_string()).is_err());
 }
 #[test]
+fn autosave_path_strips_media_extension() {
+    assert_eq!(
+        project::autosave_path("C:\\Videos\\video.mp4"),
+        PathBuf::from("C:\\Videos\\video.subsync.json")
+    );
+    assert_eq!(
+        project::autosave_path("/path/to/movie.mkv"),
+        PathBuf::from("/path/to/movie.subsync.json")
+    );
+    assert_eq!(
+        project::autosave_path("test.mp4"),
+        PathBuf::from("test.subsync.json")
+    );
+}
+#[test]
 fn atomic_project_save_replaces_and_keeps_previous_file_on_failure() {
     let dir = TestDirectory::new();
     let target = dir.0.join("편집.subsync.json");
