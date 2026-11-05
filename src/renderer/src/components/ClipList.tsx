@@ -36,7 +36,7 @@ export function ClipList() {
   }, [active, follow, virtualizer])
 
   return (
-    <section className="panel">
+    <section className="panel" aria-label="자막 편집">
       <div className="panel-header">
         <span>자막 {clips.length}개</span>
         <label className="check">

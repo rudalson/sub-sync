@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
-import { ClipList } from './components/ClipList'
 import { Dialogs } from './components/Dialogs'
-import { Player } from './components/Player'
+import { Workspace } from './components/Workspace'
 import { Toolbar } from './components/Toolbar'
 import { seekBy, togglePlay } from './player'
 import { useStore } from './store'
@@ -65,10 +64,7 @@ export function App() {
   return (
     <div className="app">
       <Toolbar />
-      <main className="workspace">
-        <Player />
-        <ClipList />
-      </main>
+      <Workspace />
 
       {message && (
         <button className="toast" onClick={() => useStore.getState().setMessage(null)}>

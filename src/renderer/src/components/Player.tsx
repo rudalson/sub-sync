@@ -77,10 +77,8 @@ export function Player() {
   const openMedia = useStore((state) => state.openMedia)
   const { stage, size } = useFittedSize(media ? media.width / media.height : 16 / 9)
 
-  useEffect(() => () => attachVideo(null), [])
-
   return (
-    <section className="player">
+    <section className="player" id="video-pane" aria-label="영상">
       <div className="stage" ref={stage}>
         {media ? (
           <div className="frame" style={size}>
