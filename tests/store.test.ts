@@ -241,4 +241,56 @@ describe('project editing session', () => {
     expect(useStore.getState().job).toBeNull()
     expect(useStore.getState().clips).toEqual(makeProject().clips)
   })
+
+  it('applies sentence boundaries with undo support and rejects invalid boundary results', () => {
+    const clips = makeProject().clips
+    clips[1] = { ...clips[1], text: 'Next.', words: [{ text: 'Next.', start: clips[1].start, end: clips[1].end }] }
+    useStore.setState({ clips, past: [], future: [] })
+
+    const allWords = clips.flatMap((c) => c.words)
+    expect(useStore.getState().applySentenceBoundary(clips, [allWords.length])).toBe(true)
+    expect(useStore.getState().clips).toHaveLength(1)
+    expect(useStore.getState().clips[0].words).toEqual(allWords)
+    expect(useStore.getState().clips[0].text).toBe(clips.map((clip) => clip.text).join(' '))
+    expect(useStore.getState().past).toHaveLength(1)
+    expect(useStore.getState().past[0]).toEqual(clips)
+    expect(useStore.getState().message).toContain('문장 단위로 자막 1개를 적용했습니다')
+
+    useStore.getState().undo()
+    expect(useStore.getState().clips).toEqual(clips)
+    expect(useStore.getState().applySentenceBoundary(clips, [allWords.length - 1])).toBe(false)
+    expect(useStore.getState().clips).toEqual(clips)
+    expect(useStore.getState().message).toContain('누락')
+    expect(useStore.getState().past).toHaveLength(0)
+  })
+
+  it('rejects a stale preview instead of overwriting newer subtitle edits', () => {
+    const clips = makeProject().clips
+    useStore.setState({ clips, past: [], future: [] })
+    useStore.getState().editText(0, '미리보기 이후 수정')
+    expect(useStore.getState().applySentenceBoundary(clips, [clips.flatMap((clip) => clip.words).length])).toBe(false)
+    expect(useStore.getState().clips[0].text).toBe('미리보기 이후 수정')
+    expect(useStore.getState().message).toContain('미리보기 후 자막이 변경')
+    expect(useStore.getState().past).toHaveLength(0)
+  })
+
+  it('saves wordless captions and edits after reconstruction and can undo the entire operation', async () => {
+    await useStore.getState().openMedia()
+    const source = makeProject().clips
+    const title = { id: 'wordless-title', start: 4, end: 4.5, text: '유지할 화면 설명', words: [] }
+    const clips = [source[0], title, source[1]]
+    useStore.setState({ clips, past: [], future: [] })
+    const ends = [clips.flatMap((clip) => clip.words).length]
+    expect(useStore.getState().applySentenceBoundary(clips, ends)).toBe(true)
+    expect(useStore.getState().clips.find((clip) => clip.id === title.id)).toEqual(title)
+    expect(useStore.getState().clips.map((clip) => clip.text)).toEqual(clips.map((clip) => clip.text))
+    await useStore.getState().saveProject()
+    const saved = api.saveProject.mock.calls[0][0]
+    expect(saved.clips.find((clip: { id: string }) => clip.id === title.id)).toEqual(title)
+    expect(saved.clips.flatMap((clip: { words: unknown[] }) => clip.words)).toEqual(clips.flatMap((clip) => clip.words))
+    useStore.getState().undo()
+    expect(useStore.getState().clips).toEqual(clips)
+    useStore.getState().redo()
+    expect(useStore.getState().clips.find((clip) => clip.id === title.id)).toEqual(title)
+  })
 })

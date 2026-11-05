@@ -23,7 +23,7 @@
     "useLocalToolsDir": true,
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "targets": ["nsis"],
-    "resources": { "../backend/transcribe.py": "backend/transcribe.py", "../backend/requirements.txt": "backend/requirements.txt" },
+    "resources": { "../backend/transcribe.py": "backend/transcribe.py", "../backend/sentence_boundary.py": "backend/sentence_boundary.py", "../backend/requirements.txt": "backend/requirements.txt" },
     "windows": { "webviewInstallMode": { "type": "downloadBootstrapper" } }
   }
 }

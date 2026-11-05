@@ -53,6 +53,28 @@ fn electron_project_format_round_trips_without_losing_anchors() {
     );
 }
 #[test]
+fn sentence_worker_uses_pysbd_and_returns_word_boundaries_over_utf8_pipes() {
+    let dir = TestDirectory::new();
+    let state = Backend::new(dir.0.clone(), dir.0.clone()).unwrap();
+    for (text, expected) in [
+        ("The U.S. Army is here. We should leave.", vec![5, 8]),
+        ("We met at Acme Inc. Then we left.", vec![5, 8]),
+        ("Yes. No. Yes.", vec![1, 2, 3]),
+        ("😀 Hello. Next.", vec![2, 3]),
+    ] {
+        let words = text.split_whitespace().map(str::to_owned).collect();
+        assert_eq!(
+            backend::sentence_boundaries(&state, words).unwrap(),
+            expected
+        );
+    }
+    assert!(backend::sentence_boundaries(&state, Vec::new())
+        .unwrap()
+        .is_empty());
+    state.cancel_jobs();
+    assert!(backend::sentence_boundaries(&state, vec!["Hello.".into()]).is_err());
+}
+#[test]
 fn legacy_projects_and_bom_are_supported() {
     let source = serde_json::json!({"version":1, "mediaSize":4096, "clips":fixture().clips});
     let restored = project::parse(&format!("\u{feff}{source}")).unwrap();

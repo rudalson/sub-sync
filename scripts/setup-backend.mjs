@@ -10,7 +10,7 @@ if (installed && !configRoot) throw new Error('앱 데이터 폴더를 찾을 �
 const backend = installed ? join(configRoot, 'dev.subsync.editor', 'backend') : source
 mkdirSync(backend, { recursive: true })
 if (installed) {
-  for (const file of ['transcribe.py', 'requirements.txt']) copyFileSync(join(source, file), join(backend, file))
+  for (const file of ['transcribe.py', 'sentence_boundary.py', 'requirements.txt']) copyFileSync(join(source, file), join(backend, file))
 }
 const venv = join(backend, '.venv')
 const python = join(venv, process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python')

@@ -356,6 +356,14 @@ pub fn cancel_stt(state: State<'_, Shared>) {
     backend::cancel(&state.stt);
 }
 #[tauri::command]
+pub async fn sentence_boundaries(
+    words: Vec<String>,
+    state: State<'_, Shared>,
+) -> Result<Vec<usize>, String> {
+    let state = state.inner().clone();
+    worker(move || backend::sentence_boundaries(&state, words)).await
+}
+#[tauri::command]
 pub async fn start_export(
     app: AppHandle,
     state: State<'_, Shared>,

@@ -74,6 +74,14 @@ describe('Tauri frontend bridge', () => {
     expect(mocks.invoke).toHaveBeenLastCalledWith('close_window')
     unsubscribe()
   })
+  it('requests real sentence boundaries through the registered native command', async () => {
+    mocks.invoke.mockResolvedValue([5, 8])
+    const words = 'The U.S. Army is here. We should leave.'.split(' ')
+    expect(await api.sentenceBoundaries(words)).toEqual([5, 8])
+    expect(mocks.invoke).toHaveBeenLastCalledWith('sentence_boundaries', { words })
+    mocks.invoke.mockRejectedValue(new Error('pySBD is missing'))
+    await expect(api.sentenceBoundaries(words)).rejects.toThrow('pySBD')
+  })
   it('allows the window to close if the editor did not finish starting', async () => {
     await initializeNativeApi()
     const event = { preventDefault: vi.fn() }

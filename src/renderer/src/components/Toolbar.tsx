@@ -42,6 +42,7 @@ export function Toolbar() {
         <div className="command-group">
           <button onClick={() => void useStore.getState().openMedia()}>영상 열기</button>
           <button className="primary" disabled={!media} onClick={() => useStore.getState().setDialog('stt')}>자막 생성</button>
+          <button className="quiet" disabled={!hasClips} onClick={() => useStore.getState().setDialog('sentenceBoundary')}>문장으로 묶기</button>
           <button className="quiet" disabled={!hasClips} onClick={() => useStore.getState().setDialog('recut')}>자막 길이</button>
           <button className="quiet" onClick={() => useStore.getState().setDialog('dictionary')}>단어 사전</button>
         </div>

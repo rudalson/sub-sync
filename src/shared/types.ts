@@ -127,4 +127,5 @@ export interface Api {
   startExport(request: ExportRequest): Promise<void>
   cancelExport(): Promise<void>
   onProgress(listener: (fraction: number) => void): () => void
+  sentenceBoundaries(words: string[]): Promise<number[]>
 }

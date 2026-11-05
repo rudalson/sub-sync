@@ -13,6 +13,7 @@ import {
 import { overlayCues } from '../../shared/overlay'
 import { DEFAULT_SETTINGS } from '../../shared/project'
 import { joinWords, segmentWords } from '../../shared/segment'
+import { reconstructSentencesWithPreservation, type SentenceBoundaryOptions } from '../../shared/sentenceBoundary'
 import { parseSrt, serializeSrt } from '../../shared/srt'
 import { PEAKS_PER_SECOND, type Clip, type MediaInfo, type ProjectFile, type SavedProject, type Settings, type Word } from '../../shared/types'
 import { restorePlayback, usePlayback } from './player'
@@ -22,7 +23,7 @@ const HISTORY_LIMIT = 100
 
 let restoringProject = false
 
-export type DialogName = 'stt' | 'recut' | 'export' | 'dictionary'
+export type DialogName = 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary'
 
 interface Job {
   label: string
@@ -68,6 +69,7 @@ interface State {
   saveSrt(saveAs?: boolean): Promise<void>
   transcribe(): Promise<void>
   recut(): Promise<void>
+  applySentenceBoundary(sourceClips: Clip[], sentenceEnds: number[], options?: SentenceBoundaryOptions): boolean
   applyDictionaryNow(): void
   exportVideo(): Promise<void>
 
@@ -349,6 +351,24 @@ export const useStore = create<State>((set, get) => {
         if (!proceed) return
       }
       commit(segmentWords(words, settings.segment))
+    },
+
+    applySentenceBoundary(sourceClips, sentenceEnds, options = {}) {
+      if (get().clips !== sourceClips) {
+        set({ message: '미리보기 후 자막이 변경되었습니다. 문장을 다시 분석해 주세요.' })
+        return false
+      }
+      try {
+        const result = reconstructSentencesWithPreservation(sourceClips, sentenceEnds, options)
+        if (!result.integrity.valid) throw new Error(result.integrity.error)
+        const clips = result.sentences.map(({ id, start, end, text, words }) => ({ id, start, end, text, words }))
+        commit(clips)
+        set({ dialog: null, message: `문장 단위로 자막 ${clips.length}개를 적용했습니다.` })
+        return true
+      } catch (error) {
+        set({ message: '적용 실패: ' + errorText(error) })
+        return false
+      }
     },
 
     applyDictionaryNow() {

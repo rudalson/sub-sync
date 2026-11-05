@@ -490,6 +490,73 @@ fn python(state: &Backend) -> Result<PathBuf, String> {
         .join(suffix);
     [dev, installed].into_iter().find(|p| p.is_file()).ok_or_else(|| "Whisper Python 환경이 없습니다. npm run setup:backend를 실행하거나 SUB_SYNC_PYTHON으로 기존 Python 환경을 지정해 주세요.".into())
 }
+pub fn sentence_boundaries(state: &Backend, words: Vec<String>) -> Result<Vec<usize>, String> {
+    if words.is_empty() {
+        return Ok(Vec::new());
+    }
+    if state.shutdown.load(Ordering::Relaxed) {
+        return Err("작업을 취소했습니다.".into());
+    }
+    let word_count = words.len();
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../backend/sentence_boundary.py");
+    let script = if dev.is_file() {
+        dev
+    } else {
+        state.resource_dir.join("backend/sentence_boundary.py")
+    };
+    let mut child = command(python(state)?)
+        .arg("-u")
+        .arg(script)
+        .env("PYTHONUTF8", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("문장 분석기를 실행할 수 없습니다: {e}"))?;
+    let _registration = ChildRegistration::new(state, child.id());
+    let input = child.stdin.take().unwrap();
+    let mut output = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let writer =
+        thread::spawn(move || serde_json::to_writer(input, &words).map_err(|e| e.to_string()));
+    let reader = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        output
+            .read_to_end(&mut bytes)
+            .map(|_| bytes)
+            .map_err(|e| e.to_string())
+    });
+    let errors = thread::spawn(move || error_tail(stderr));
+    let status = wait(&mut child, &state.shutdown, &state.shutdown);
+    let written = writer
+        .join()
+        .map_err(|_| "문장 분석 입력 전송에 실패했습니다.")?;
+    let bytes = reader
+        .join()
+        .map_err(|_| "문장 분석 결과를 읽지 못했습니다.")??;
+    let errors = errors.join().unwrap_or_default();
+    if !status?.success() {
+        return Err(if errors.is_empty() {
+            "문장 분석에 실패했습니다.".into()
+        } else {
+            errors
+        });
+    }
+    written?;
+    let ends: Vec<usize> = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("문장 분석 결과 형식이 잘못되었습니다: {e}"))?;
+    let mut previous = 0;
+    for &end in &ends {
+        if end <= previous || end > word_count {
+            return Err("문장 분석 결과의 단어 범위가 올바르지 않습니다.".into());
+        }
+        previous = end;
+    }
+    if previous != word_count {
+        return Err("문장 분석 결과에 원문 단어가 누락되었습니다.".into());
+    }
+    Ok(ends)
+}
 pub fn start_stt(
     state: Shared,
     app: AppHandle,

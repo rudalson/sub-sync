@@ -7,6 +7,7 @@ backend 폴더를 실행 파일 옆에 그대로 두세요.
 - Windows WebView2 Runtime
 - PATH에 등록된 ffmpeg와 ffprobe (자막 영상 내보내기는 libass 지원 필요)
 - STT를 사용할 때만 faster-whisper가 설치된 Python 환경과 Whisper 모델이 필요합니다.
+- 문장으로 묶기는 같은 Python 환경에 설치된 pySBD를 사용합니다 (Whisper 모델은 불필요).
 
 기존 프로젝트와 SRT는 그대로 열 수 있습니다.
 현재 저장소에서 작업하던 PC에서는 기존 backend/.venv를 사용합니다.

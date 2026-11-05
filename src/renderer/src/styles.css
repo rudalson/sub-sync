@@ -166,6 +166,7 @@ button.edge:hover, button.edge:active { background: transparent; }
 .status-tip { margin-left: auto; }
 
 .modal { width: 520px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); margin: auto; padding: 0; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); box-shadow: 0 12px 36px rgba(0,0,0,.35); }
+.modal.modal-wide { width: 680px; }
 .modal::backdrop { background: rgba(0,0,0,.65); }
 .modal-content { display: flex; flex-direction: column; max-height: calc(100vh - 42px); padding: 24px; }
 .dialog-header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
@@ -194,6 +195,43 @@ button.edge:hover, button.edge:active { background: transparent; }
 .toast > span { min-width: 0; overflow-wrap: anywhere; text-wrap: pretty; }
 .toast button { flex-shrink: 0; font-size: 12px; }
 .drag-hint { position: fixed; z-index: 30; transform: translate(10px, -28px); padding: 3px 8px; background: var(--accent); color: var(--accent-text); border-radius: 4px; font: 12px var(--mono); pointer-events: none; }
+
+.sentence-boundary-container { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.stat-card { display: flex; flex-direction: column; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+.stat-card.success { border-color: rgba(46, 160, 67, 0.4); background: rgba(46, 160, 67, 0.08); }
+.stat-card.warning { border-color: rgba(210, 153, 34, 0.4); background: rgba(210, 153, 34, 0.08); }
+.stat-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.stat-value { font-size: 14px; font-weight: 600; color: var(--text); }
+.stat-card.warning .stat-value { color: #d29922; }
+.stat-card.success .stat-value { color: #3fb950; }
+
+.callout { padding: 12px; border-radius: 6px; font-size: 13px; line-height: 1.5; border: 1px solid var(--border); }
+.callout.info { background: rgba(56, 139, 253, 0.1); border-color: rgba(56, 139, 253, 0.3); }
+.callout strong { display: block; margin-bottom: 4px; color: var(--text); }
+.callout p { color: var(--muted); margin: 0; font-size: 12px; }
+
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.preview-section { display: flex; flex-direction: column; min-height: 0; }
+.preview-section h3 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.sentence-preview-list { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; padding-right: 4px; }
+.sentence-preview-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; transition: border-color .15s; }
+.sentence-preview-item:hover { border-color: var(--muted); }
+.sentence-preview-item.uncertain { border-left: 3px solid #d29922; }
+.sentence-preview-item.edited { border-left: 3px solid #a371f7; }
+
+.item-meta { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: 11px; }
+.item-index { font-weight: 600; color: var(--muted); font-family: var(--mono); }
+.item-time { color: var(--muted); font-family: var(--mono); }
+.item-badges { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-left: auto; }
+
+.badge { display: inline-flex; align-items: center; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 500; }
+.badge-edited { background: rgba(163, 113, 247, 0.2); color: #d2a8ff; border: 1px solid rgba(163, 113, 247, 0.4); }
+.badge-no-punctuation, .badge-ellipsis, .badge-long-pause, .badge-too-long, .badge-edited-boundary, .badge-no-words, .badge-wordless-boundary { background: rgba(210, 153, 34, 0.2); color: #e3b341; border: 1px solid rgba(210, 153, 34, 0.4); }
+
+.item-text { font-size: 13px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.item-uncertain-details { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; border-top: 1px dashed var(--border); font-size: 11px; color: #d29922; }
 
 @keyframes slide { from { transform: translateX(-20%); } to { transform: translateX(210%); } }
 @container (max-width: 560px) {

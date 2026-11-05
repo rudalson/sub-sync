@@ -44,6 +44,7 @@ export const api: Api = {
   startExport: (request) => invoke('start_export', { request }),
   cancelExport: () => invoke('cancel_export'),
   onProgress: (listener) => subscribe(progressListeners, listener),
+  sentenceBoundaries: (words) => invoke('sentence_boundaries', { words }),
   onCloseRequested: (listener) => subscribe(closeListeners, listener),
   closeWindow: () => invoke('close_window')
 }

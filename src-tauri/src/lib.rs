@@ -55,6 +55,7 @@ pub fn run() {
             commands::save_settings,
             commands::start_stt,
             commands::cancel_stt,
+            commands::sentence_boundaries,
             commands::start_export,
             commands::cancel_export,
             commands::close_window
