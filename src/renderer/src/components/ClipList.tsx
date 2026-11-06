@@ -27,7 +27,7 @@ export function ClipList() {
   const virtualizer = useVirtualizer({
     count: clips.length,
     getScrollElement: () => scroller.current,
-    estimateSize: () => 230,
+    estimateSize: () => 180,
     overscan: 6,
     getItemKey: (index) => clips[index].id
   })
