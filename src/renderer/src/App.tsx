@@ -7,7 +7,19 @@ import { seekBy, togglePlay } from './player'
 import { useStore } from './store'
 
 function isTyping(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest('textarea, input, select, [contenteditable="true"]') !== null
+  // The seek bar has no Space behaviour of its own, so it must not swallow the playback shortcuts.
+  return target instanceof Element && target.closest('textarea, input:not([type="range"]), select, [contenteditable="true"]') !== null
+}
+
+/**
+ * A mouse-clicked button would keep focus, and Space would then press it again (reopening a file picker)
+ * instead of playing. Keyboard focus is left alone so buttons stay operable from the keyboard.
+ */
+function keepFocusOffClickedButtons(event: MouseEvent) {
+  if (event.button !== 0 || !(event.target instanceof Element)) return
+  if (!event.target.closest('button, summary') || event.target.closest('dialog')) return
+  event.preventDefault()
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
 }
 
 export function App() {
@@ -56,8 +68,10 @@ export function App() {
       }
     }
     window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('mousedown', keepFocusOffClickedButtons)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('mousedown', keepFocusOffClickedButtons)
       unsubscribeClose()
     }
   }, [])

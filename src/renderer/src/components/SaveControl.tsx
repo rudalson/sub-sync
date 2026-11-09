@@ -57,10 +57,11 @@ export function SaveControl({ label, disabled, shortcut, saveAsLabel, saveAsShor
         <div className="save-menu-content">
           <button
             disabled={disabled}
-            onClick={() => {
+            onClick={(event) => {
               if (menu.current) {
                 menu.current.open = false
-                menu.current.querySelector('summary')?.focus()
+                // Return focus only for keyboard use; a mouse user's Space must keep controlling playback.
+                if (event.detail === 0) menu.current.querySelector('summary')?.focus()
               }
               onSaveAs()
             }}
