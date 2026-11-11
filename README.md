@@ -16,6 +16,7 @@
 ```powershell
 npm install
 npm run setup:backend   # backend/.venv에 faster-whisper 설치
+npm run setup:skills    # AI 에이전트용 스킬 설치 (skills-lock.json 기준)
 npm run dev             # Tauri + Vite 개발 실행
 npm start               # 최적화된 Rust 릴리스 빌드 후 실행
 npm run build           # 최적화된 Rust 실행 파일 생성
@@ -28,6 +29,8 @@ npm run build:installer # Windows NSIS 설치 파일 생성 (설치 도구 다�
 Whisper 모델은 처음 사용할 때 자동으로 내려받습니다 (large-v3-turbo 약 1.6GB). 앱 본체에는 Python 환경·CUDA·Whisper 모델·FFmpeg를 포함하지 않으므로 이 구성 요소들의 설치 용량과 추론 메모리는 별도로 필요합니다. FFmpeg와 ffprobe는 PATH에 등록해야 합니다.
 
 설치형 앱에서 사용할 Whisper 환경은 이 저장소에서 `npm run setup:backend:installed`로 준비할 수 있습니다. 이 명령은 `%APPDATA%/dev.subsync.editor/backend/.venv`에 환경을 만듭니다. 기존 환경을 사용하려면 `SUB_SYNC_PYTHON`을 Python 실행 파일의 절대 경로로 지정하세요. 개발 중에는 기존 `backend/.venv`를 그대로 사용합니다. `SUB_SYNC_FFMPEG`와 `SUB_SYNC_FFPROBE`로 각 실행 파일 경로도 지정할 수 있습니다.
+
+AI 에이전트(Claude Code, Codex)로 작업할 때 쓰는 스킬은 저장소에 포함하지 않습니다. `skills-lock.json`에 출처와 해시만 기록하며, `npm run setup:skills`가 이를 읽어 `.agents/skills`에 내려받고 `.claude/skills`에 연결합니다. 스킬은 에이전트 권한으로 실행되므로 설치 전에 lock 파일의 출처를 확인하세요. 스킬을 추가할 때는 `npx skills add <저장소> --skill <이름> -a claude-code codex`로 설치하고 바뀐 `skills-lock.json`을 커밋합니다.
 
 ## 긴 영상 처리
 

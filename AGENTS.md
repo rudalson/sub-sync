@@ -36,6 +36,7 @@
 
 - **프로젝트명**: Sub Sync (로컬 Whisper 기반 자막 싱크 편집기)
 - **스택**: Tauri 2, Rust, React 19, TypeScript, Zustand, Vite, Python (faster-whisper), FFmpeg
+- **에이전트 스킬**: 스킬 파일(`.agents/skills`, `.claude/skills`)은 저장소에 없고 `skills-lock.json`만 추적합니다. `skills-lock.json`에 있는 스킬이 설치되어 있지 않으면 작업 전에 사용자에게 `npm run setup:skills` 실행을 안내합니다. 스킬을 추가하면 바뀐 `skills-lock.json`을 함께 커밋합니다.
 - **테스트 및 검사**:
   - `npm run typecheck`: TypeScript 타입 검사
   - `npm test`: 단위 테스트 실행

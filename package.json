@@ -9,6 +9,7 @@
   },
   "scripts": {
     "setup:backend": "node scripts/setup-backend.mjs",
+    "setup:skills": "npx -y skills@1.8.1 install -a claude-code codex",
     "setup:backend:installed": "node scripts/setup-backend.mjs --app-data",
     "dev": "tauri dev",
     "dev:web": "vite --host 127.0.0.1 --port 1420",

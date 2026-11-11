@@ -18,3 +18,9 @@ src-tauri/icons/android/
 src-tauri/icons/ios/
 src-tauri/icons/*Logo.png
 vitest.config.mjs
+
+# 에이전트 스킬: 파일은 저장소에 넣지 않고 skills-lock.json만 추적합니다.
+# 새로 clone한 PC에서는 npm run setup:skills로 설치합니다.
+.agent/
+.agents/
+.claude/skills/
