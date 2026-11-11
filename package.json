@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Local Whisper subtitle sync editor",
+  "bin": {
+    "sub-sync": "out/cli/sub-sync.mjs"
+  },
   "scripts": {
     "setup:backend": "node scripts/setup-backend.mjs",
     "setup:backend:installed": "node scripts/setup-backend.mjs --app-data",
@@ -14,6 +17,8 @@
     "build:portable": "node scripts/package-portable.mjs",
     "build:web": "vite build",
     "build:app": "tauri build --no-bundle",
+    "build:cli": "node scripts/build-cli.mjs",
+    "cli": "node scripts/cli.mjs",
     "start": "node scripts/start.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --configLoader runner",

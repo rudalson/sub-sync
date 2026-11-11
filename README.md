@@ -105,11 +105,33 @@ SRT를 불러오면 각 자막의 글자 칸과 시간이 SRT 내용으로 바�
 
 편집 내용은 영상 옆 `<영상 파일명>.subsync.json`에도 자동 저장되며, 같은 영상을 열면 복원됩니다. 영상 전환과 앱 종료 전에 남은 자동 저장을 완료합니다. 이름을 지정한 프로젝트 파일은 **프로젝트 저장**으로 갱신하세요. 기존 버전의 자동 저장 파일도 열 수 있으며, 기존 파일에 없는 파형은 처음 복원할 때 추출합니다. 저장 중 오류가 발생하면 이전에 저장된 정상 파일을 유지하고 오류를 표시합니다.
 
+## 명령줄(CLI)로 사용하기
+
+앱 창을 띄우지 않고 음성 인식, 한글 자막 덮어쓰기, 문장 묶기, SRT 저장을 명령줄에서 실행할 수 있습니다. Node.js와 위의 Whisper Python 환경이 필요합니다.
+
+```powershell
+npm run cli -- transcribe lecture.mp4 -o lecture.en.srt   # 음성 인식 → lecture.subsync.json, 영어 SRT
+npm run cli -- overlay lecture.subsync.json --srt ko.srt  # 한글 SRT 덮어쓰기 (영어 단어 위치 유지)
+npm run cli -- sentences lecture.subsync.json             # pySBD 원문 문장 단위로 묶기
+npm run cli -- srt lecture.subsync.json -o lecture.ko.srt # SRT로 저장
+npm run cli -- transcribe --help                          # 명령별 옵션 보기
+```
+
+- `npm run cli`는 `out/cli/sub-sync.mjs`를 빌드한 뒤 실행합니다. 한 번 `npm run build:cli`로 빌드하면 `node out/cli/sub-sync.mjs <명령>`으로 바로 실행할 수 있고, `npm link`를 하면 어디서나 `sub-sync <명령>`으로 실행할 수 있습니다.
+- `transcribe`는 기본으로 영상 옆 `<영상 파일명>.subsync.json`에 저장합니다. 앱에서 그 영상을 열면 자동 복원되고, **프로젝트 열기**로도 열 수 있습니다. 파형은 앱에서 처음 열 때 추출합니다.
+- Whisper 모델, 언어, 자막 길이, 단어 사전의 기본값은 앱 설정을 따르며 `--model`, `--language`, `--device`, `--max-chars`, `--max-duration`, `--dict <사전 파일>`로 바꿀 수 있습니다.
+- `overlay`와 `sentences`는 입력 프로젝트를 고쳐 씁니다. 결과를 따로 두려면 `-p <새 프로젝트>`를 쓰세요. `-o <경로>`를 붙이면 SRT도 함께 저장합니다.
+- 이미 있는 다른 파일은 덮어쓰지 않습니다. 덮어쓰려면 `--force`를 붙입니다. 원본 영상 경로에는 어떤 경우에도 쓰지 않습니다.
+- 진행 상황은 표준 오류로, 결과는 표준 출력으로 나옵니다. `--json`은 진행 상황과 결과를 한 줄에 하나씩 JSON으로 출력하고, `-q`는 진행 상황을 숨깁니다. 종료 코드는 성공 0, 실패 1, 잘못된 사용법 2, Ctrl+C 취소 130입니다.
+- Python과 FFmpeg는 앱과 같은 규칙으로 찾습니다. `SUB_SYNC_PYTHON`, `SUB_SYNC_FFPROBE` 환경 변수로 직접 지정할 수도 있습니다.
+
 ## 구조
 
 | 경로 | 역할 |
 | --- | --- |
 | `src/shared` | SRT, 자막 자르기, 덮어쓰기, 편집, ASS 생성 (순수 함수, `tests`에서 검증) |
+| `src/shared/pipeline.ts` | 앱과 CLI가 함께 쓰는 처리 흐름: 인식 결과→자막, SRT 덮어쓰기, 문장 묶기, 프로젝트 구성 |
+| `src/cli` | 명령줄 도구: 명령 처리(`commands.ts`), Python·ffprobe 실행과 파일 저장(`runtime.ts`) |
 | `src-tauri/src` | Rust 실행부: 프로젝트·설정 파일, FFmpeg·Whisper 프로세스, 영상 구간 읽기 |
 | `src/renderer` | React UI |
 | `src/renderer/src/api.ts` | Tauri 명령·이벤트와 기존 편집기 API 연결 |

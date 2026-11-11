@@ -10,12 +10,21 @@ import {
   splitClip,
   type Edge
 } from '../../shared/edits'
-import { overlayCues } from '../../shared/overlay'
+import {
+  allWords,
+  buildProject,
+  clipsFromTranscript,
+  defaultProjectPath,
+  groupSentences,
+  mergeSettings,
+  overlaySrt,
+  stripExtension
+} from '../../shared/pipeline'
 import { DEFAULT_SETTINGS } from '../../shared/project'
 import { joinWords, segmentWords } from '../../shared/segment'
-import { reconstructSentencesWithPreservation, type SentenceBoundaryOptions } from '../../shared/sentenceBoundary'
-import { parseSrt, serializeSrt } from '../../shared/srt'
-import { PEAKS_PER_SECOND, type Clip, type MediaInfo, type ProjectFile, type SavedProject, type Settings, type Word } from '../../shared/types'
+import type { SentenceBoundaryOptions } from '../../shared/sentenceBoundary'
+import { serializeSrt } from '../../shared/srt'
+import type { Clip, MediaInfo, ProjectFile, SavedProject, Settings, Word } from '../../shared/types'
 import { restorePlayback, usePlayback } from './player'
 
 const api = window.api
@@ -92,8 +101,6 @@ function fontLineRatio(font: string): number {
   return (metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent) / 100 || 1
 }
 
-const allWords = (clips: Clip[]): Word[] => clips.flatMap((clip) => clip.words)
-const stripExtension = (path: string) => path.replace(/\.[^./\\]+$/, '')
 const cleanProjectPath = (path: string) => path.replace(/\.(mp4|mkv|webm|avi|mov|m4v|flv|wmv)\.subsync\.json$/i, '.subsync.json')
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -136,7 +143,7 @@ export const useStore = create<State>((set, get) => {
   async function runTranscription() {
     const { media, settings, clips } = get()
     if (!media) return
-    const dictionary = parseDictionary(settings.dictionary)
+    const { hotwords } = parseDictionary(settings.dictionary)
     const words: Word[] = []
 
     await new Promise<void>((resolve) => {
@@ -172,16 +179,15 @@ export const useStore = create<State>((set, get) => {
             finish(`음성 인식 실패: ${event.message}`)
             break
           case 'done': {
-            const hasOnlySubtitles = clips.length > 0 && allWords(clips).length === 0
-            const next = hasOnlySubtitles ? overlayCues(words, clips) : segmentWords(words, get().settings.segment)
-            commit(applyDictionary(next, dictionary))
+            const next = clipsFromTranscript(words, clips, get().settings)
+            commit(next)
             finish(`자막 ${next.length}개 생성 완료 (${event.device === 'cuda' ? 'GPU' : 'CPU'})`)
             break
           }
         }
       })
       setJob('음성 인식 준비 중', null)
-      void api.startStt(media.path, settings.stt, dictionary.hotwords).catch((error) => finish(`음성 인식 실패: ${errorText(error)}`))
+      void api.startStt(media.path, settings.stt, hotwords).catch((error) => finish(`음성 인식 실패: ${errorText(error)}`))
     })
   }
 
@@ -204,12 +210,7 @@ export const useStore = create<State>((set, get) => {
 
     async init() {
       const saved = await api.loadSettings()
-      if (get().mediaSession === 0) set({ settings: {
-        ...DEFAULT_SETTINGS, ...saved,
-        stt: { ...DEFAULT_SETTINGS.stt, ...saved.stt },
-        segment: { ...DEFAULT_SETTINGS.segment, ...saved.segment },
-        style: { ...DEFAULT_SETTINGS.style, ...saved.style }
-      } })
+      if (get().mediaSession === 0) set({ settings: mergeSettings(saved) })
       api.onProgress((progress) => {
         const job = get().job
         if (job) set({ job: { ...job, progress } })
@@ -271,7 +272,7 @@ export const useStore = create<State>((set, get) => {
         // A protected video folder must not prevent saving a named project in another folder.
         await flushAutosave().catch(() => {})
         const project = projectSnapshot(get())!
-        const defaultPath = cleanProjectPath(state.projectPath ?? `${stripExtension(state.media.path)}.subsync.json`)
+        const defaultPath = cleanProjectPath(state.projectPath ?? defaultProjectPath(state.media.path))
         const targetPath = saveAs ? null : (state.projectPath ? cleanProjectPath(state.projectPath) : null)
         const path = await api.saveProject(project, targetPath, defaultPath)
         if (path && get().mediaSession === state.mediaSession) {
@@ -319,13 +320,15 @@ export const useStore = create<State>((set, get) => {
     async loadSrt() {
       const file = await api.pickSrt()
       if (!file) return
-      const cues = parseSrt(file.content)
-      if (cues.length === 0) {
-        set({ message: 'SRT에서 자막을 찾지 못했습니다.' })
+      let result: ReturnType<typeof overlaySrt>
+      try {
+        result = overlaySrt(get().clips, file.content)
+      } catch (error) {
+        set({ message: errorText(error) })
         return
       }
-      commit(overlayCues(allWords(get().clips), cues))
-      set({ srtPath: file.path, message: `자막 ${cues.length}개를 불러왔습니다.` })
+      commit(result.clips)
+      set({ srtPath: file.path, message: `자막 ${result.cues}개를 불러왔습니다.` })
     },
 
     async saveSrt(saveAs = false) {
@@ -368,9 +371,7 @@ export const useStore = create<State>((set, get) => {
         return false
       }
       try {
-        const result = reconstructSentencesWithPreservation(sourceClips, sentenceEnds, options)
-        if (!result.integrity.valid) throw new Error(result.integrity.error)
-        const clips = result.sentences.map(({ id, start, end, text, words }) => ({ id, start, end, text, words }))
+        const { clips } = groupSentences(sourceClips, sentenceEnds, options)
         commit(clips)
         set({ dialog: null, message: `문장 단위로 자막 ${clips.length}개를 적용했습니다.` })
         return true
@@ -428,15 +429,14 @@ export const useStore = create<State>((set, get) => {
 
 function projectSnapshot(state: State, playback = usePlayback.getState()): ProjectFile | null {
   if (!state.media) return null
-  const { url: _url, ...media } = state.media
-  return {
-    format: 'sub-sync', version: 2, media,
+  return buildProject({
+    media: state.media,
     clips: state.clips,
-    waveform: state.peaks === null ? null : { samplesPerSecond: PEAKS_PER_SECOND, peaks: Array.from(state.peaks) },
     settings: state.settings,
+    peaks: state.peaks,
     playback: { time: playback.time, rate: playback.rate, follow: state.follow },
     srtPath: state.srtPath
-  }
+  })
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined

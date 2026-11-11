@@ -5,6 +5,10 @@ backend/.venv/
 __pycache__/
 *.subsync.json
 !tests/fixtures/*.subsync.json
+*.mp4
+*.srt
+!tests/fixtures/*.mp4
+!tests/fixtures/*.srt
 src-tauri/target/
 src-tauri/gen/
 .cargo-home/
