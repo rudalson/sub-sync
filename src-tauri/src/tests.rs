@@ -98,21 +98,42 @@ fn invalid_versions_and_corrupt_fields_are_rejected() {
 fn autosave_path_strips_media_extension() {
     assert_eq!(
         project::autosave_path("C:\\Videos\\video.mp4"),
-        PathBuf::from("C:\\Videos\\video.subsync.json")
+        PathBuf::from("C:\\Videos\\video.subsync")
     );
     assert_eq!(
         project::autosave_path("/path/to/movie.mkv"),
-        PathBuf::from("/path/to/movie.subsync.json")
+        PathBuf::from("/path/to/movie.subsync")
     );
     assert_eq!(
         project::autosave_path("test.mp4"),
-        PathBuf::from("test.subsync.json")
+        PathBuf::from("test.subsync")
     );
+}
+#[test]
+fn saved_projects_always_end_with_the_subsync_extension() {
+    for (typed, saved) in [
+        ("C:\\Projects\\편집.subsync", "C:\\Projects\\편집.subsync"),
+        ("C:\\Projects\\편집.SUBSYNC", "C:\\Projects\\편집.SUBSYNC"),
+        ("C:\\Projects\\편집", "C:\\Projects\\편집.subsync"),
+        ("C:\\Projects\\편집.json", "C:\\Projects\\편집.json.subsync"),
+        (
+            "C:\\Projects\\편집.subsync.json",
+            "C:\\Projects\\편집.subsync.json.subsync",
+        ),
+    ] {
+        assert_eq!(
+            project::with_extension(PathBuf::from(typed)),
+            PathBuf::from(saved)
+        );
+    }
+    assert!(!project::is_project_path(&PathBuf::from(
+        "편집.subsync.json"
+    )));
 }
 #[test]
 fn atomic_project_save_replaces_and_keeps_previous_file_on_failure() {
     let dir = TestDirectory::new();
-    let target = dir.0.join("편집.subsync.json");
+    let target = dir.0.join("편집.subsync");
     let mut project = fixture();
     project.media.path = dir.0.join("원본.mp4").to_string_lossy().into_owned();
     project::write(&target, &project).unwrap();
@@ -148,7 +169,7 @@ fn moved_project_prefers_relative_video_and_can_fall_back_to_original() {
     let dir = TestDirectory::new();
     let original = dir.0.join("video.mp4");
     fs::write(&original, b"video").unwrap();
-    let project_path = dir.0.join("work.subsync.json");
+    let project_path = dir.0.join("work.subsync");
     let mut project = fixture();
     project.media.path = original.to_string_lossy().into_owned();
     project.media.size = 5;
@@ -156,7 +177,7 @@ fn moved_project_prefers_relative_video_and_can_fall_back_to_original() {
     let saved = project::read(&project_path).unwrap();
     let moved = dir.0.join("moved");
     fs::create_dir(&moved).unwrap();
-    let moved_project = moved.join("work.subsync.json");
+    let moved_project = moved.join("work.subsync");
     assert_eq!(
         project::find_media(&moved_project, &saved),
         Some(original.clone())

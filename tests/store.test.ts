@@ -30,7 +30,7 @@ beforeEach(() => {
   api.loadProject.mockResolvedValue(null)
   api.loadPeaks.mockResolvedValue(Uint8Array.from(makeProject().waveform!.peaks))
   api.autosaveProject.mockResolvedValue(undefined)
-  api.saveProject.mockResolvedValue('C:\\Projects\\편집.subsync.json')
+  api.saveProject.mockResolvedValue('C:\\Projects\\편집.subsync')
   api.loadSettings.mockResolvedValue({})
   api.saveSettings.mockResolvedValue(undefined)
   api.closeWindow.mockResolvedValue(undefined)
@@ -87,12 +87,12 @@ describe('project editing session', () => {
     expect(project.clips[0].words[1].start).toBe(2)
     expect(project.media).not.toHaveProperty('url')
     expect(path).toBeNull()
-    expect(defaultPath).toBe('C:\\Videos\\원본.subsync.json')
+    expect(defaultPath).toBe('C:\\Videos\\원본.subsync')
     expect(api.saveSrt).not.toHaveBeenCalled()
     expect(useStore.getState().projectDirty).toBe(false)
 
     await useStore.getState().saveProject()
-    expect(api.saveProject.mock.calls[1][1]).toBe('C:\\Projects\\편집.subsync.json')
+    expect(api.saveProject.mock.calls[1][1]).toBe('C:\\Projects\\편집.subsync')
     await useStore.getState().saveProject(true)
     expect(api.saveProject.mock.calls[2][1]).toBeNull()
   })
@@ -101,7 +101,7 @@ describe('project editing session', () => {
     await useStore.getState().openMedia()
     const previousSession = useStore.getState().mediaSession
     const project = makeProject()
-    api.pickProject.mockResolvedValue({ path: 'C:\\Projects\\편집.subsync.json', media, project })
+    api.pickProject.mockResolvedValue({ path: 'C:\\Projects\\편집.subsync', media, project })
     api.loadPeaks.mockClear()
     await useStore.getState().openProject()
 
@@ -194,7 +194,7 @@ describe('project editing session', () => {
     await useStore.getState().saveProject(true)
     expect(jobDuringSave).toBeNull()
     expect(useStore.getState().job).toBeNull()
-    expect(useStore.getState().projectPath).toBe('C:\\Projects\\편집.subsync.json')
+    expect(useStore.getState().projectPath).toBe('C:\\Projects\\편집.subsync')
     expect(useStore.getState().projectDirty).toBe(true)
   })
 
@@ -207,20 +207,17 @@ describe('project editing session', () => {
     api.saveProject.mockImplementation(() => savePromise)
     const firstSave = useStore.getState().saveProject(true)
     const secondSave = useStore.getState().saveProject(true)
-    resolveSave('C:\\Projects\\편집.subsync.json')
+    resolveSave('C:\\Projects\\편집.subsync')
     await Promise.all([firstSave, secondSave])
     expect(api.saveProject).toHaveBeenCalledTimes(1)
   })
 
-  it('strips video extensions from the default project filename', async () => {
+  it('names the default project after the video without its extension', async () => {
+    api.openMedia.mockResolvedValue({ ...media, path: 'C:\\Videos\\동영상.mp4' })
+    api.pickMedia.mockResolvedValue('C:\\Videos\\동영상.mp4')
     await useStore.getState().openMedia()
-    useStore.setState({ projectPath: 'C:\\Videos\\동영상.mp4.subsync.json' })
     await useStore.getState().saveProject(true)
-    expect(api.saveProject).toHaveBeenLastCalledWith(
-      expect.anything(),
-      null,
-      'C:\\Videos\\동영상.subsync.json'
-    )
+    expect(api.saveProject).toHaveBeenLastCalledWith(expect.anything(), null, 'C:\\Videos\\동영상.subsync')
   })
 
   it('can save before STT, with an empty subtitle list and no audio', async () => {
@@ -247,7 +244,7 @@ describe('project editing session', () => {
     useStore.setState({ clips: makeProject().clips })
     api.saveProject.mockImplementation(async () => {
       useStore.getState().editText(0, '저장 이후 변경')
-      return 'C:\\Projects\\편집.subsync.json'
+      return 'C:\\Projects\\편집.subsync'
     })
     await useStore.getState().saveProject()
     expect(useStore.getState().projectDirty).toBe(true)

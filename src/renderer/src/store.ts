@@ -101,7 +101,6 @@ function fontLineRatio(font: string): number {
   return (metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent) / 100 || 1
 }
 
-const cleanProjectPath = (path: string) => path.replace(/\.(mp4|mkv|webm|avi|mov|m4v|flv|wmv)\.subsync\.json$/i, '.subsync.json')
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 export const useStore = create<State>((set, get) => {
@@ -272,8 +271,8 @@ export const useStore = create<State>((set, get) => {
         // A protected video folder must not prevent saving a named project in another folder.
         await flushAutosave().catch(() => {})
         const project = projectSnapshot(get())!
-        const defaultPath = cleanProjectPath(state.projectPath ?? defaultProjectPath(state.media.path))
-        const targetPath = saveAs ? null : (state.projectPath ? cleanProjectPath(state.projectPath) : null)
+        const defaultPath = state.projectPath ?? defaultProjectPath(state.media.path)
+        const targetPath = saveAs ? null : state.projectPath
         const path = await api.saveProject(project, targetPath, defaultPath)
         if (path && get().mediaSession === state.mediaSession) {
           const current = get()

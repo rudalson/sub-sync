@@ -101,7 +101,7 @@ describe('command line', () => {
     expect(runtime.transcribe.mock.calls[0][1]).toEqual({ model: 'large-v3-turbo', language: 'en', device: 'cpu' })
     expect(runtime.transcribe.mock.calls[0][2]).toBe('RESTful')
 
-    const project = readJson(join(folder, 'lecture.subsync.json'))
+    const project = readJson(join(folder, 'lecture.subsync'))
     expect(project.media).toMatchObject({ path: video, relativePath: 'lecture.mp4', size: 11 })
     expect(project.settings.segment.maxChars).toBe(40)
     expect(project.srtPath).toBe(join(folder, 'en.srt'))
@@ -111,7 +111,7 @@ describe('command line', () => {
   })
 
   it('refuses to replace an existing project before running recognition unless forced', async () => {
-    writeFileSync(join(folder, 'lecture.subsync.json'), '{}')
+    writeFileSync(join(folder, 'lecture.subsync'), '{}')
     expect(await run('transcribe', video)).toBe(EXIT.error)
     expect(stderr).toContain('--force')
     expect(runtime.transcribe).not.toHaveBeenCalled()
@@ -120,7 +120,7 @@ describe('command line', () => {
 
   it('overlays a CP949 Korean SRT in place while the English word anchors stay', async () => {
     await run('transcribe', video)
-    const project = join(folder, 'lecture.subsync.json')
+    const project = join(folder, 'lecture.subsync')
     writeFileSync(join(folder, 'ko.srt'), Buffer.concat([
       Buffer.from('1\r\n00:00:00,000 --> 00:00:02,000\r\n'), Buffer.from([0xb0, 0xa1]), Buffer.from('\r\n')
     ]))
@@ -133,24 +133,32 @@ describe('command line', () => {
 
   it('groups sentences with pySBD boundaries and passes the edit preservation choice', async () => {
     await run('transcribe', video, '--max-chars', '10')
-    const project = join(folder, 'lecture.subsync.json')
-    expect(await run('sentences', project, '--no-preserve-edits', '-p', join(folder, 'sentences.subsync.json'))).toBe(EXIT.ok)
+    const project = join(folder, 'lecture.subsync')
+    expect(await run('sentences', project, '--no-preserve-edits', '-p', join(folder, 'sentences.subsync'))).toBe(EXIT.ok)
     expect(runtime.sentenceBoundaries.mock.calls[0][0]).toHaveLength(8)
-    expect(readJson(join(folder, 'sentences.subsync.json')).clips.map((clip) => clip.text)).toEqual(['Welcome to rest full.', 'Today we model resources.'])
+    expect(readJson(join(folder, 'sentences.subsync')).clips.map((clip) => clip.text)).toEqual(['Welcome to rest full.', 'Today we model resources.'])
   })
 
   it('saves SRT next to the video by default and reports JSON results', async () => {
     await run('transcribe', video)
     stdout = ''
-    expect(await run('srt', join(folder, 'lecture.subsync.json'), '--json')).toBe(EXIT.ok)
+    expect(await run('srt', join(folder, 'lecture.subsync'), '--json')).toBe(EXIT.ok)
     expect(JSON.parse(stdout.trim())).toMatchObject({ type: 'result', command: 'srt', clips: 2, srt: join(folder, 'lecture.srt') })
     expect(readFileSync(join(folder, 'lecture.srt'), 'utf8')).toContain('Today we model resources.')
+  })
+
+  it('reads only .subsync projects and always saves projects with that extension', async () => {
+    await run('transcribe', video, '-p', join(folder, 'work.json'))
+    expect(readJson(join(folder, 'work.json.subsync')).clips).toHaveLength(2)
+    writeFileSync(join(folder, 'old.subsync.json'), readFileSync(join(folder, 'work.json.subsync')))
+    expect(await run('srt', join(folder, 'old.subsync.json'))).toBe(EXIT.error)
+    expect(stderr).toContain('.subsync) 파일만 열 수 있습니다')
   })
 
   it('reports usage errors with exit code 2 and never writes over the video', async () => {
     expect(await run('transcribe', video, '--device', 'tpu')).toBe(EXIT.usage)
     expect(await run('transcribe', video, '--max-chars', '1.5')).toBe(EXIT.usage)
-    expect(await run('overlay', join(folder, 'lecture.subsync.json'))).toBe(EXIT.usage)
+    expect(await run('overlay', join(folder, 'lecture.subsync'))).toBe(EXIT.usage)
     expect(await run('unknown')).toBe(EXIT.usage)
     expect(await run('transcribe', video, '-o', video, '--force')).toBe(EXIT.error)
     expect(stderr).toContain('원본 영상과 같은 경로')

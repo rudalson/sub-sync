@@ -10,7 +10,11 @@ import { PEAKS_PER_SECOND, type Clip, type MediaInfo, type ProjectFile, type Set
 
 export const allWords = (clips: Clip[]): Word[] => clips.flatMap((clip) => clip.words)
 export const stripExtension = (path: string) => path.replace(/\.[^./\\]+$/, '')
-export const defaultProjectPath = (mediaPath: string) => `${stripExtension(mediaPath)}.subsync.json`
+/** The only project file extension. The content is JSON, but `.subsync` is always the last extension. */
+export const PROJECT_EXTENSION = '.subsync'
+export const isProjectPath = (path: string) => path.toLowerCase().endsWith(PROJECT_EXTENSION)
+export const withProjectExtension = (path: string) => (isProjectPath(path) ? path : `${path}${PROJECT_EXTENSION}`)
+export const defaultProjectPath = (mediaPath: string) => `${stripExtension(mediaPath)}${PROJECT_EXTENSION}`
 
 /** Saved settings may come from an older version, so each group falls back to the defaults field by field. */
 export function mergeSettings(saved: Partial<Settings> = {}): Settings {

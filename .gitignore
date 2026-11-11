@@ -3,7 +3,9 @@ out/
 dist/
 backend/.venv/
 __pycache__/
+*.subsync
 *.subsync.json
+!tests/fixtures/*.subsync
 !tests/fixtures/*.subsync.json
 *.mp4
 *.srt

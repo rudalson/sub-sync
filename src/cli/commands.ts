@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { parseArgs, type ParseArgsConfig } from 'node:util'
 import { parseDictionary } from '../shared/edits'
-import { allWords, buildProject, clipsFromTranscript, defaultProjectPath, groupSentences, mergeSettings, overlaySrt, stripExtension } from '../shared/pipeline'
+import {
+  allWords, buildProject, clipsFromTranscript, defaultProjectPath, groupSentences, isProjectPath, mergeSettings, overlaySrt, stripExtension,
+  withProjectExtension
+} from '../shared/pipeline'
 import { parseProject } from '../shared/project'
 import { serializeSrt } from '../shared/srt'
 import type { Clip, ProjectFile, SttEvent, SttOptions } from '../shared/types'
@@ -30,7 +33,7 @@ const USAGE = `Sub Sync CLI: 로컬 Whisper 자막 싱크 편집기의 명령줄
   srt <프로젝트>        프로젝트를 SRT 파일로 저장합니다.
 
 공통 옵션:
-  -p, --project <경로>  저장할 프로젝트 경로
+  -p, --project <경로>  저장할 프로젝트 경로 (.subsync가 없으면 붙여서 저장)
   -o, --output <경로>   함께 저장할 SRT 경로
       --force           이미 있는 파일을 덮어씁니다.
       --json            진행 상황과 결과를 한 줄에 하나씩 JSON으로 출력합니다.
@@ -42,11 +45,11 @@ const USAGE = `Sub Sync CLI: 로컬 Whisper 자막 싱크 편집기의 명령줄
 const HELP: Record<string, string> = {
   transcribe: `사용법: sub-sync transcribe <영상> [옵션]
 
-영상을 음성 인식해 프로젝트를 만듭니다. 기본 저장 위치는 영상 옆의 <영상 이름>.subsync.json이며,
+영상을 음성 인식해 프로젝트를 만듭니다. 기본 저장 위치는 영상 옆의 <영상 이름>.subsync이며,
 데스크톱 앱에서 그 영상을 열면 자동으로 복원됩니다. 모델·자막 길이·사전 기본값은 앱 설정을 따릅니다.
 
 옵션:
-  -p, --project <경로>       프로젝트 경로 (기본: <영상 이름>.subsync.json)
+  -p, --project <경로>       프로젝트 경로 (기본: <영상 이름>.subsync)
   -o, --output <경로>        SRT도 함께 저장
       --model <이름>         Whisper 모델 (예: large-v3-turbo)
       --language <코드>      인식 언어 (예: en)
@@ -168,6 +171,7 @@ function createReporter(io: CliIo, json: boolean, quiet: boolean) {
 }
 
 function readProject(path: string): ProjectFile {
+  if (!isProjectPath(path)) throw new Error(`Sub Sync 프로젝트(.subsync) 파일만 열 수 있습니다: ${path}`)
   if (!existsSync(path)) throw new Error(`프로젝트 파일이 없습니다: ${path}`)
   const project = parseProject(readFileSync(path, 'utf8'))
   if (project.version !== 2) {
@@ -186,7 +190,11 @@ interface Outputs {
  * refused write. The input project may always be rewritten; other existing files need --force.
  */
 function planOutputs(outputs: Outputs, mediaPath: string, force: boolean, input?: string): Outputs {
-  const resolved = Object.fromEntries(Object.entries(outputs).map(([key, path]) => [key, path && resolve(path)])) as Outputs
+  const resolved: Outputs = {
+    // A project is always saved as `.subsync`, whatever name was given, exactly like the editor's save dialog.
+    project: outputs.project && withProjectExtension(resolve(outputs.project)),
+    srt: outputs.srt && resolve(outputs.srt)
+  }
   for (const path of Object.values(resolved)) {
     if (!path) continue
     if (samePath(path, mediaPath)) throw new Error(`원본 영상과 같은 경로에는 저장할 수 없습니다: ${path}`)

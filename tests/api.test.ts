@@ -45,7 +45,7 @@ describe('Tauri frontend bridge', () => {
     expect(await api.loadPeaks(media.path)).toBeNull()
   })
   it('validates native project data and restores its media URL', async () => {
-    mocks.invoke.mockResolvedValue({ path: 'work.subsync.json', project: makeProject(), media: { ...media, url: 'token' } })
+    mocks.invoke.mockResolvedValue({ path: 'work.subsync', project: makeProject(), media: { ...media, url: 'token' } })
     const opened = await api.pickProject()
     expect(opened?.project).toEqual(makeProject())
     expect(opened?.media.url).toBe('http://media.localhost/token')
@@ -54,8 +54,8 @@ describe('Tauri frontend bridge', () => {
   })
   it('sends save and job arguments using the names expected by Rust', async () => {
     const project = makeProject()
-    await api.saveProject(project, null, 'work.subsync.json')
-    expect(mocks.invoke).toHaveBeenLastCalledWith('save_project', { project, path: null, defaultPath: 'work.subsync.json' })
+    await api.saveProject(project, null, 'work.subsync')
+    expect(mocks.invoke).toHaveBeenLastCalledWith('save_project', { project, path: null, defaultPath: 'work.subsync' })
     await api.startStt(media.path, project.settings.stt, 'RESTful')
     expect(mocks.invoke).toHaveBeenLastCalledWith('start_stt', { mediaPath: media.path, options: project.settings.stt, hotwords: 'RESTful' })
     await api.cancelStt()
