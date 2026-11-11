@@ -198,18 +198,21 @@ kbd {
 .chips { display: flex; flex-wrap: wrap; gap: 4px 6px; }
 .chip { position: relative; min-width: 34px; max-width: 100%; background: var(--ink-1); border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--line); user-select: none; transition: background-color 160ms ease, box-shadow 160ms ease; }
 .chip:hover, .chip:focus-within { background: var(--ink-2); box-shadow: inset 0 0 0 1px var(--ink-4); }
-.chip.active { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+/* The word being spoken now lights up: a bright accent fill, so it stands out from every other chip */
+.chip.active { background: color-mix(in srgb, var(--accent) 34%, var(--raised)); box-shadow: inset 0 0 0 1px var(--accent); }
 .chip-silence { background: transparent; box-shadow: none; outline: 1px dashed var(--ink-4); outline-offset: -1px; }
 .chip-audio { flex: 1; color: var(--text); }
 /* One line tall: the waveform is the chip's background, the word sits on it */
 button.chip-content { position: relative; display: block; width: 100%; min-width: 0; min-height: 0; padding: 3px 8px; overflow: hidden; border-radius: inherit; background: transparent; box-shadow: none; font-weight: 400; text-align: left; }
 button.chip-content:hover:not(:disabled) { background: transparent; }
-.chip-label { position: relative; display: block; max-width: 100%; color: var(--text); font-size: 12px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
-.chip:hover .chip-label, .chip.active .chip-label { color: var(--text-strong); }
+/* Words are the content here, so they stay bright over the waveform rather than taking the muted ink */
+.chip-label { position: relative; display: block; max-width: 100%; color: #dcdce0; font-size: 12px; font-weight: 500; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
+.chip:hover .chip-label { color: var(--text-strong); }
+.chip.active .chip-label { color: #fff; font-weight: 600; }
 .chip-silence .chip-label { color: var(--text-faint); }
 .waveform { position: absolute; inset: 0; display: block; width: 100%; height: 100%; opacity: .22; pointer-events: none; transition: opacity 160ms ease; }
 .chip:hover .waveform, .chip:focus-within .waveform { opacity: .32; }
-.chip.active .waveform { opacity: .45; }
+.chip.active .waveform { opacity: .55; }
 button.edge { position: absolute; top: 0; bottom: 0; width: 9px; min-height: 0; z-index: 1; padding: 0; border-radius: 0; background: transparent; box-shadow: none; cursor: col-resize; touch-action: none; }
 button.edge:hover:not(:disabled), button.edge:active:not(:disabled) { background: transparent; }
 .edge-left { left: -6px; }
