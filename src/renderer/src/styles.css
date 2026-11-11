@@ -102,9 +102,7 @@ kbd {
 .app { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) 28px; }
 .toolbar { min-width: 0; z-index: 2; }
 .project-bar { min-height: 56px; display: flex; align-items: center; gap: 24px; padding: 8px 20px; background: var(--chrome); box-shadow: inset 0 -1px 0 var(--line); }
-.brand { display: flex; flex-shrink: 0; align-items: center; gap: 8px; font-size: 17px; font-weight: 650; letter-spacing: -.6px; }
-.brand img { display: block; }
-.project-identity { flex: 1; min-width: 0; padding-left: 20px; box-shadow: inset 1px 0 0 var(--line); }
+.project-identity { flex: 1; min-width: 0; }
 .project-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .project-state { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--text); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .state-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
@@ -326,7 +324,6 @@ button.edge:hover:not(:disabled), button.edge:active:not(:disabled) { background
 }
 @media (max-width: 1200px) {
   .project-bar { gap: 16px; padding-inline: 16px; }
-  .project-identity { padding-left: 16px; }
   .project-state { font-size: 11px; }
   .command-bar { padding-inline: 16px; gap: 8px; flex-wrap: wrap; }
   .command-group { gap: 4px; }

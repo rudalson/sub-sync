@@ -1,4 +1,3 @@
-import appIcon from '../assets/sub-sync-brand/app-icon.svg'
 import { useStore } from '../store'
 import { SaveControl } from './SaveControl'
 
@@ -18,7 +17,6 @@ export function Toolbar() {
   return (
     <header className="toolbar">
       <div className="project-bar">
-        <div className="brand"><img src={appIcon} width={32} height={32} alt="" /><span>Sub Sync</span></div>
         <div className="project-identity">
           <div className="project-name" title={projectPath ?? media?.path}>{name}</div>
           {status && (
