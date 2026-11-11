@@ -49,7 +49,6 @@ export function ClipList() {
       <div className="clip-scroll" ref={scroller}>
         {clips.length === 0 ? (
           <div className="panel-empty">
-            <span className="empty-eyebrow">문장과 타이밍을 한곳에서</span>
             <h3>{hasMedia ? '이제 자막을 만들어보세요' : '자막이 여기에 모입니다'}</h3>
             <p>{hasMedia ? '영상의 음성을 인식하거나 기존 SRT 파일을 불러올 수 있습니다.' : '영상을 연 뒤 자막을 생성하거나 SRT 파일을 불러올 수 있습니다.'}</p>
             <div className="empty-actions">

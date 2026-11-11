@@ -1,3 +1,4 @@
+import { ChevronDown } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 interface SaveControlProps {
@@ -53,7 +54,7 @@ export function SaveControl({ label, disabled, shortcut, saveAsLabel, saveAsShor
           tabIndex={disabled ? -1 : 0}
           title={label + ' 옵션'}
           onClick={(event) => { if (disabled) event.preventDefault() }}
-        >⌄</summary>
+        ><ChevronDown size={16} strokeWidth={2} aria-hidden="true" /></summary>
         <div className="save-menu-content">
           <button
             disabled={disabled}

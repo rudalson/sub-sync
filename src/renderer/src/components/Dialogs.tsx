@@ -155,7 +155,7 @@ function RecutDialog() {
   return (
     <Dialog
       title="자막 길이 다시 자르기"
-      description="인식된 단어를 기준으로 자막을 다시 나눕니다."
+      description="음성 인식을 다시 하지 않고, 인식된 단어를 기준으로 자막을 다시 나눕니다."
       onClose={() => store.setDialog(null)}
       footer={
         <button className="primary" onClick={() => void store.recut()}>
@@ -164,7 +164,6 @@ function RecutDialog() {
       }
     >
       <section className="settings-group"><LengthFields /></section>
-      <p className="note">음성 인식을 다시 하지 않고 인식된 단어 기준으로 나눕니다.</p>
     </Dialog>
   )
 }

@@ -1,3 +1,4 @@
+import { X } from 'lucide-react'
 import { useStore } from '../store'
 import { Modal } from './Modal'
 
@@ -13,7 +14,9 @@ export function Feedback() {
       {message && (
         <div className="toast" role="status">
           <span>{message}</span>
-          <button className="quiet" aria-label="알림 닫기" onClick={() => useStore.getState().setMessage(null)}>닫기</button>
+          <button className="quiet icon-button" aria-label="알림 닫기" title="닫기" onClick={() => useStore.getState().setMessage(null)}>
+            <X size={16} strokeWidth={2} aria-hidden="true" />
+          </button>
         </div>
       )}
       {dragHint && (

@@ -99,7 +99,8 @@ function Waveform({ start, end }: { start: number; end: number }) {
       context.scale(ratio, ratio)
       if (!peaks) return
 
-      context.fillStyle = '#4fc3f7'
+      // The waveform takes its color from the look's token, like every other surface.
+      context.fillStyle = getComputedStyle(element).getPropertyValue('--wave').trim() || '#4fc3f7'
       const bars = Math.max(1, Math.floor(width / BAR_STEP))
       const span = ((end - start) * PEAKS_PER_SECOND) / bars
       for (let bar = 0; bar < bars; bar++) {

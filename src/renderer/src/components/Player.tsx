@@ -83,7 +83,7 @@ export function Player() {
     <section className="player" id="video-pane" aria-labelledby="video-title">
       <header className="pane-header video-header">
         <h1 id="video-title">영상 미리보기</h1>
-        {media && <span className="pane-meta" title={media.path}>{media.path.split(/[\\/]/).pop()} · {media.width}×{media.height} · {formatClock(media.duration)}</span>}
+        {media && <span className="pane-meta" title={media.path}>{media.width}×{media.height} · {formatClock(media.duration)}</span>}
       </header>
       <div className="stage" ref={stage}>
         {media ? (
@@ -102,11 +102,10 @@ export function Player() {
           </div>
         ) : (
           <div className="start-state">
-            <span className="empty-eyebrow">영상에서 자막까지</span>
             <h2>편집할 영상을 열어주세요</h2>
             <p>음성을 자막으로 만들고,<br />단어의 타이밍과 문장을 다듬어보세요.</p>
             <button className="primary large" onClick={() => void openMedia()}>영상 열기</button>
-            <button className="quiet resume" onClick={() => void useStore.getState().openProject()}>이전에 저장한 프로젝트 열기 <span aria-hidden="true">→</span></button>
+            <button className="quiet resume" onClick={() => void useStore.getState().openProject()}>이전에 저장한 프로젝트 열기</button>
           </div>
         )}
       </div>

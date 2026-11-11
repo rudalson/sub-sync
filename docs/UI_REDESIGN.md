@@ -52,14 +52,15 @@
 
 ## Design Decisions
 
-- Anchor: 기존 Sub Sync 시각 체계를 발전시키는 자체 시스템. 외부 제품의 디자인이나 자산을 모방하지 않는다.
-- Palette: 배경 #14161a, 패널 #1c1f24, 입력·hover #262a31, 경계 #363b44, 본문 #e8eaed, 보조 글자 #9aa0aa, 강조 #29b6f6, 파형 #4fc3f7. 선택 배경은 강조색에서 낮은 불투명도로 파생한다.
-- Typography: 현재 Pretendard → Malgun Gothic → Segoe UI 순서를 유지한다. 시간 정보는 Consolas → monospace와 tabular-nums를 사용한다. 외부 폰트를 내려받지 않는다.
-- Type scale: 조작·본문 14px, 편집 문장 15~16px, 패널 제목 15px, 대화상자 제목 20px, 보조 설명 12~13px. 파일명과 실제 편집 문장이 장식 제목보다 우선한다.
+- Anchor: Stageshow 스킬(.agents/skills/stageshow, MIT)의 다크 룩 토큰을 Sub Sync에 맞춘 체계. 강조색은 앱 아이콘의 청록을 유지한다. 외부 제품의 디자인이나 자산을 모방하지 않는다.
+- Palette: 캔버스 #111113, 패널 #1a1a1d, 헤더·도구 막대 #1d1d20, 띄운 면(메뉴·대화상자·재생 중 카드) #26262a, 입력 우물 #0e0e10. 선은 반투명 흰색(8%), 글자는 #ececee·#9d9da1·#6c6c70 세 단계. 강조 #29b6f6, 파형 #4fc3f7, 상태색은 성공 #22c55e·경고 #f59e0b. 모든 값은 styles.css의 :root 토큰에 있다.
+- Edges: 테두리 대신 상자 안쪽에 그리는 1px 링(inset box-shadow)을 쓴다. 깊이는 그림자가 아니라 표면 밝기 단계로 낸다.
+- Typography: 현재 Pretendard → Malgun Gothic → Segoe UI 순서를 유지한다. 시간 정보는 SF Mono → ui-monospace → Consolas 고정폭과 tabular-nums를 사용한다. 외부 폰트를 내려받지 않는다.
+- Type scale: 조작·본문 14px, 편집 문장 15~16px, 패널 제목 13px, 대화상자 제목 18px, 보조 설명 12~13px. 파일명과 실제 편집 문장이 장식 제목보다 우선한다.
 - Spacing: 4px 기준, 4/8/12/16/24px. 패널 여백 16px, 카드 사이 12px, 버튼 높이 약 32~36px.
-- Radius: 버튼·입력 6px, 자막 카드 10px, 대화상자 12px. 역할과 무관한 알약 모양을 추가하지 않는다.
-- Shadow: 기본 작업 면에는 그림자를 쓰지 않는다. 메뉴·대화상자만 0 12px 36px rgba(0,0,0,.35)를 사용한다.
-- Motion: 색상·경계 전환 120ms ease-out. prefers-reduced-motion에서는 전환을 줄인다. 진행 막대의 불확정 상태는 기존 의미를 유지한다.
+- Radius: 버튼·입력 6px, 세그먼트 트랙 8px, 메뉴·알림 10px, 자막 카드·대화상자 12px. 알약 모양은 개수·상태 배지에만 쓴다.
+- Shadow: 기본 작업 면에는 그림자를 쓰지 않는다. 떠 있는 메뉴·대화상자·알림만 --shadow-float(링 + 그림자 두 겹)을 사용한다.
+- Motion: 색상·링 전환 160ms ease. prefers-reduced-motion에서는 전환을 줄인다. 진행 막대의 불확정 상태는 기존 의미를 유지한다.
 - States: hover, focus-visible, pressed, disabled, empty, loading, error를 실제 동작에 맞춰 표현한다. 상태는 색상과 함께 문구·테두리로 전달한다.
 
 ## 제안하는 화면 구성

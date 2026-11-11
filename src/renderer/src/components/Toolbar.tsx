@@ -10,7 +10,8 @@ export function Toolbar() {
   const canUndo = useStore((state) => state.past.length > 0)
   const canRedo = useStore((state) => state.future.length > 0)
   const name = (projectPath ?? media?.path)?.split(/[\\/]/).pop() ?? '새 프로젝트'
-  const status = !media ? '영상이나 프로젝트를 열어 시작하세요'
+  // Before a video is open the empty state already says how to start; the header does not repeat it.
+  const status = !media ? null
     : !projectPath ? '프로젝트로 저장해 편집을 이어가세요'
       : dirty ? '저장하지 않은 변경 사항이 있습니다' : '프로젝트 저장됨'
 
@@ -20,9 +21,11 @@ export function Toolbar() {
         <div className="brand"><img src={appIcon} width={32} height={32} alt="" /><span>Sub Sync</span></div>
         <div className="project-identity">
           <div className="project-name" title={projectPath ?? media?.path}>{name}</div>
-          <div className={media && dirty ? 'project-state unsaved' : 'project-state'}>
-            {media && dirty && <span className="state-dot" aria-hidden="true" />}{status}
-          </div>
+          {status && (
+            <div className={media && dirty ? 'project-state unsaved' : 'project-state'}>
+              {media && dirty && <span className="state-dot" aria-hidden="true" />}{status}
+            </div>
+          )}
         </div>
         <div className="project-actions" aria-label="프로젝트 도구">
           <button onClick={() => void useStore.getState().openProject()} title="프로젝트 열기 (Ctrl+O)">프로젝트 열기</button>
@@ -34,14 +37,15 @@ export function Toolbar() {
           />
           <span className="action-divider" aria-hidden="true" />
           <button className="export-button" disabled={!media || !hasClips} onClick={() => useStore.getState().setDialog('export')}>
-            영상 내보내기 <span aria-hidden="true">↗</span>
+            영상 내보내기
           </button>
         </div>
       </div>
       <nav className="command-bar" aria-label="자막 작업 도구">
+        {/* All quiet: the next step's accent lives on the empty state's own button, said once. */}
         <div className="command-group">
-          <button onClick={() => void useStore.getState().openMedia()}>영상 열기</button>
-          <button className="primary" disabled={!media} onClick={() => useStore.getState().setDialog('stt')}>자막 생성</button>
+          <button className="quiet" onClick={() => void useStore.getState().openMedia()}>영상 열기</button>
+          <button className="quiet" disabled={!media} onClick={() => useStore.getState().setDialog('stt')}>자막 생성</button>
           <button className="quiet" disabled={!hasClips} onClick={() => useStore.getState().setDialog('sentenceBoundary')}>문장으로 묶기</button>
           <button className="quiet" disabled={!hasClips} onClick={() => useStore.getState().setDialog('recut')}>자막 길이</button>
           <button className="quiet" onClick={() => useStore.getState().setDialog('dictionary')}>단어 사전</button>
