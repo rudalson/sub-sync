@@ -1,4 +1,4 @@
-import type { Clip, SubtitleStyle } from './types'
+import type { Clip, FontFace, SubtitleStyle } from './types'
 import { closeSubtitleGaps } from './timing'
 
 function assTime(time: number): string {
@@ -21,8 +21,10 @@ function assText(text: string): string {
 /**
  * ASS sizes a font by its full line height while CSS sizes it by the em box, so `lineRatio`
  * (line height / em of the chosen font) keeps the export the same size as the on-screen preview.
+ * With an installed `face`, libass is given that face's full name ("Pretendard SemiBold") and no
+ * bold flag, which selects exactly the face the preview shows instead of a synthesized bold.
  */
-export function buildAss(clips: Clip[], style: SubtitleStyle, width: number, height: number, lineRatio = 1): string {
+export function buildAss(clips: Clip[], style: SubtitleStyle, width: number, height: number, lineRatio = 1, face: FontFace | null = null): string {
   const size = Math.round((height * style.sizePct) / 100)
   const assSize = Math.round(size * lineRatio)
   const marginV = Math.round((height * style.marginPct) / 100)
@@ -30,6 +32,8 @@ export function buildAss(clips: Clip[], style: SubtitleStyle, width: number, hei
   const borderStyle = style.box ? 3 : 1
   const outline = style.box ? Math.round(size * 0.18) : Math.max(1, Math.round(size * 0.08))
   const outlineColour = style.box ? '&H59000000' : '&H00000000'
+  const fontName = (face?.fullName ?? style.font).replace(/,/g, ' ')
+  const bold = face ? 0 : (style.weight ?? 700) >= 600 ? -1 : 0
 
   const header = [
     '[Script Info]',
@@ -41,7 +45,7 @@ export function buildAss(clips: Clip[], style: SubtitleStyle, width: number, hei
     '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-    `Style: Default,${style.font},${assSize},&H00FFFFFF,&H00FFFFFF,${outlineColour},&H00000000,-1,0,0,0,100,100,0,0,${borderStyle},${outline},0,2,${marginH},${marginH},${marginV},1`,
+    `Style: Default,${fontName},${assSize},&H00FFFFFF,&H00FFFFFF,${outlineColour},&H00000000,${bold},0,0,0,100,100,0,0,${borderStyle},${outline},0,2,${marginH},${marginH},${marginV},1`,
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text'

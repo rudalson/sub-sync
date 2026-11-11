@@ -1,6 +1,6 @@
 use crate::{
     backend::{self, Backend, PeakAccumulator},
-    files,
+    files, fonts,
     project::{self, SavedProject},
     stream,
 };
@@ -368,6 +368,8 @@ fn real_media_open_waveform_cache_and_subtitle_export_work_together() {
         output_path: output.to_string_lossy().into_owned(),
         ass: ass.into(),
         duration: 1.0,
+        // On Windows this stages Malgun Gothic's files for libass's fontsdir; elsewhere it is a no-op.
+        font_family: Some("Malgun Gothic".into()),
     };
     backend::export_video(state.clone(), None, request()).unwrap();
     let exported = fs::read(&output).unwrap();
@@ -428,4 +430,113 @@ fn cancelling_an_active_ffmpeg_job_waits_for_process_exit() {
     trigger.join().unwrap();
     assert!(result.unwrap_err().contains("취소"));
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
+}
+
+fn face(family: &str, legacy: &str, subfamily: &str, weight: u16, postscript: &str) -> fonts::Face {
+    fonts::Face {
+        family: family.into(),
+        local_name: None,
+        legacy_family: legacy.into(),
+        subfamily: subfamily.into(),
+        postscript: postscript.into(),
+        full_name: format!("{legacy} {subfamily}"),
+        weight,
+        hangul: true,
+        path: PathBuf::from(format!("C:/f/{postscript}.ttf")),
+    }
+}
+#[test]
+fn font_families_take_weights_from_style_names_and_keep_one_face_each() {
+    let catalog = fonts::FontCatalog::from_faces(vec![
+        face(
+            "Pretendard",
+            "Pretendard SemiBold",
+            "Regular",
+            600,
+            "Pretendard-SemiBold",
+        ),
+        face("Pretendard", "Pretendard", "Bold", 700, "Pretendard-Bold"),
+        face(
+            "Pretendard",
+            "Pretendard",
+            "Regular",
+            400,
+            "Pretendard-Regular",
+        ),
+        // Every face of this family claims weight 400; the style names tell them apart.
+        face("Samsung", "Samsung", "Bold", 400, "Samsung-Bold"),
+        face("Samsung", "Samsung Light", "Regular", 400, "Samsung-Light"),
+        face(
+            "Malgun Gothic",
+            "Malgun Gothic Semilight",
+            "Regular",
+            350,
+            "MalgunGothic-Semilight",
+        ),
+        face(
+            "@Malgun Gothic",
+            "@Malgun Gothic",
+            "Regular",
+            400,
+            "MalgunGothic-Vertical",
+        ),
+    ]);
+    let summary: Vec<(String, Vec<(u16, String)>)> = catalog
+        .families
+        .iter()
+        .map(|family| {
+            let weights = family
+                .weights
+                .iter()
+                .map(|w| (w.weight, w.postscript.clone()))
+                .collect();
+            (family.family.clone(), weights)
+        })
+        .collect();
+    let owned = |list: &[(u16, &str)]| {
+        list.iter()
+            .map(|(w, n)| (*w, n.to_string()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        summary,
+        vec![
+            (
+                "Malgun Gothic".to_string(),
+                owned(&[(350, "MalgunGothic-Semilight")])
+            ),
+            (
+                "Pretendard".to_string(),
+                owned(&[
+                    (400, "Pretendard-Regular"),
+                    (600, "Pretendard-SemiBold"),
+                    (700, "Pretendard-Bold")
+                ])
+            ),
+            (
+                "Samsung".to_string(),
+                owned(&[(300, "Samsung-Light"), (700, "Samsung-Bold")])
+            ),
+        ]
+    );
+    assert_eq!(catalog.files("pretendard").len(), 3);
+    assert!(catalog.files("@Malgun Gothic").is_empty());
+    assert!(catalog.files("Not Installed").is_empty());
+}
+#[cfg(windows)]
+#[test]
+fn installed_fonts_include_malgun_gothic_with_its_korean_name() {
+    let catalog = fonts::FontCatalog::load();
+    let malgun = catalog
+        .families
+        .iter()
+        .find(|family| family.family == "Malgun Gothic")
+        .expect("Malgun Gothic ships with Windows");
+    assert_eq!(malgun.local_name.as_deref(), Some("맑은 고딕"));
+    assert!(malgun.hangul);
+    assert!(malgun
+        .weights
+        .iter()
+        .any(|w| w.weight == 700 && w.postscript == "MalgunGothicBold"));
+    assert!(!catalog.files("Malgun Gothic").is_empty());
 }

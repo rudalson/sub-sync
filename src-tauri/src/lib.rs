@@ -1,6 +1,7 @@
 mod backend;
 mod commands;
 mod files;
+mod fonts;
 mod project;
 mod stream;
 #[cfg(test)]
@@ -56,6 +57,7 @@ pub fn run() {
             commands::start_stt,
             commands::cancel_stt,
             commands::sentence_boundaries,
+            commands::list_fonts,
             commands::start_export,
             commands::cancel_export,
             commands::close_window

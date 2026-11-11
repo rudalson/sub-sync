@@ -20,7 +20,7 @@ export function makeProject(): ProjectFile {
     settings: {
       stt: { model: 'medium.en', language: 'en', device: 'cuda' },
       segment: { maxChars: 50, maxDuration: 7.5, splitOnSentence: false, maxGap: 0.5 },
-      style: { font: 'Malgun Gothic', sizePct: 6.5, marginPct: 8, box: false },
+      style: { font: 'Malgun Gothic', weight: 700, sizePct: 6.5, marginPct: 8, box: false },
       dictionary: 'rest full => RESTful\n고유명사'
     },
     playback: { time: 42.625, rate: 1.25, follow: false },

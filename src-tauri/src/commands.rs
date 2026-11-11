@@ -368,6 +368,11 @@ pub async fn sentence_boundaries(
     worker(move || backend::sentence_boundaries(&state, words)).await
 }
 #[tauri::command]
+pub async fn list_fonts(state: State<'_, Shared>) -> Result<Vec<crate::fonts::FontFamily>, String> {
+    let state = state.inner().clone();
+    worker(move || Ok(state.fonts().families.clone())).await
+}
+#[tauri::command]
 pub async fn start_export(
     app: AppHandle,
     state: State<'_, Shared>,

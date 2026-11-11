@@ -40,9 +40,15 @@ pub struct SegmentOptions {
 #[serde(rename_all = "camelCase")]
 pub struct SubtitleStyle {
     pub font: String,
+    /// Projects saved before the weight could be chosen drew subtitles bold.
+    #[serde(default = "default_weight")]
+    pub weight: u16,
     pub size_pct: f64,
     pub margin_pct: f64,
     pub r#box: bool,
+}
+fn default_weight() -> u16 {
+    700
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
@@ -59,6 +65,7 @@ impl Settings {
             || self.segment.max_chars == 0
             || !positive(self.segment.max_duration)
             || !nonnegative(self.segment.max_gap)
+            || !(1..=1000).contains(&self.style.weight)
             || !positive(self.style.size_pct)
             || !nonnegative(self.style.margin_pct)
         {

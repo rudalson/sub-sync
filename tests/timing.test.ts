@@ -42,7 +42,7 @@ describe('short subtitle gaps', () => {
     expect(clipIndexAt(displayed, 7.5)).toBe(1)
     expect(clipIndexAt(displayed, clips[2].start)).toBe(2)
     expect(clipIndexAt(displayed, 8.6)).toBe(-1)
-    const ass = buildAss(clips, { font: 'Malgun Gothic', sizePct: 5, marginPct: 6, box: true }, 1280, 720)
+    const ass = buildAss(clips, { font: 'Malgun Gothic', weight: 700, sizePct: 5, marginPct: 6, box: true }, 1280, 720)
     expect(ass).toContain('Dialogue: 0,0:00:00.00,0:00:05.98,')
     expect(ass).toContain('Dialogue: 0,0:00:05.98,0:00:07.56,')
     expect(ass).toContain('Dialogue: 0,0:00:07.56,0:00:08.60,')
@@ -82,7 +82,7 @@ describe('short subtitle gaps', () => {
     expect(displayed.map(({ id, end }) => [id, end])).toEqual([['first', 1.4], ['next', 2]])
     expect(clipIndexAt(displayed, 1.15)).toBe(0)
     expect(parseSrt(serializeSrt(clips))).toHaveLength(2)
-    expect(buildAss(clips, { font: 'Arial', sizePct: 5, marginPct: 6, box: true }, 1280, 720))
+    expect(buildAss(clips, { font: 'Arial', weight: 700, sizePct: 5, marginPct: 6, box: true }, 1280, 720))
       .toContain('Dialogue: 0,0:00:00.00,0:00:01.40,')
   })
 

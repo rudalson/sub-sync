@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { closeSubtitleGaps } from '../../../shared/timing'
 import { attachVideo, clipIndexAt, formatClock, formatTimecode, seek, seekBy, setRate, togglePlay, usePlayback, videoLoaded } from '../player'
+import { captionFont, useCaptionFace } from '../fonts'
 import { useStore } from '../store'
+import { FontPicker } from './FontPicker'
 
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
 
@@ -27,10 +29,11 @@ function Caption() {
   const style = useStore((state) => state.settings.style)
   const subtitles = useMemo(() => closeSubtitleGaps(clips), [clips])
   const index = usePlayback((state) => clipIndexAt(subtitles, state.time))
+  const face = useCaptionFace(style)
   const text = subtitles[index]?.text.trim()
   if (!text) return null
   return (
-    <div className="caption" style={{ bottom: `${style.marginPct}cqh`, fontSize: `${style.sizePct}cqh`, fontFamily: style.font }}>
+    <div className="caption" style={{ bottom: `${style.marginPct}cqh`, fontSize: `${style.sizePct}cqh`, ...captionFont(style, face) }}>
       <span className={style.box ? 'caption-text boxed' : 'caption-text outlined'}>{text}</span>
     </div>
   )
@@ -83,7 +86,12 @@ export function Player() {
     <section className="player" id="video-pane" aria-labelledby="video-title">
       <header className="pane-header video-header">
         <h1 id="video-title">영상 미리보기</h1>
-        {media && <span className="pane-meta" title={media.path}>{media.width}×{media.height} · {formatClock(media.duration)}</span>}
+        {media && (
+          <div className="pane-tools">
+            <FontPicker compact />
+            <span className="pane-meta" title={media.path}>{media.width}×{media.height} · {formatClock(media.duration)}</span>
+          </div>
+        )}
       </header>
       <div className="stage" ref={stage}>
         {media ? (

@@ -163,7 +163,7 @@ describe('buildAss', () => {
   it('uses video pixels and escapes override characters', () => {
     const ass = buildAss(
       [{ id: 'a', start: 3661.5, end: 3662.25, text: '<i>첫 줄</i>\n{둘째}', words: [] }],
-      { font: 'Malgun Gothic', sizePct: 5, marginPct: 6, box: true },
+      { font: 'Malgun Gothic', weight: 700, sizePct: 5, marginPct: 6, box: true },
       1280,
       720
     )
@@ -173,7 +173,42 @@ describe('buildAss', () => {
   })
 
   it('scales the font by its line height so it matches the preview', () => {
-    const style = { font: 'Malgun Gothic', sizePct: 5, marginPct: 6, box: true }
+    const style = { font: 'Malgun Gothic', weight: 700, sizePct: 5, marginPct: 6, box: true }
     expect(buildAss([], style, 1280, 720, 1.33)).toContain('Style: Default,Malgun Gothic,48,')
+  })
+
+  it('names the exact installed face for libass and never asks it to embolden that face', () => {
+    const style = { font: 'Pretendard', weight: 600, sizePct: 5, marginPct: 6, box: true }
+    const face = { weight: 600, postscript: 'Pretendard-SemiBold', fullName: 'Pretendard SemiBold' }
+    expect(buildAss([], style, 1280, 720, 1, face)).toContain('Style: Default,Pretendard SemiBold,36,&H00FFFFFF,&H00FFFFFF,&H59000000,&H00000000,0,')
+    expect(buildAss([], { ...style, weight: 400 }, 1280, 720)).toContain('Style: Default,Pretendard,36,&H00FFFFFF,&H00FFFFFF,&H59000000,&H00000000,0,')
+    expect(buildAss([], { ...style, weight: 700 }, 1280, 720)).toContain('&H00000000,-1,')
+  })
+})
+
+describe('subtitle fonts', () => {
+  const families = [{
+    family: 'Pretendard', localName: null, hangul: true,
+    weights: [400, 600, 700].map((weight) => ({ weight, postscript: `Pretendard-${weight}`, fullName: `Pretendard ${weight}` }))
+  }]
+
+  it('picks the nearest installed face, case-insensitively, and nothing for a missing font', async () => {
+    const { pickFace, weightName } = await import('../src/shared/fonts')
+    expect(pickFace(families, 'pretendard', 600)?.postscript).toBe('Pretendard-600')
+    expect(pickFace(families, 'Pretendard', 500)?.weight).toBe(600)
+    expect(pickFace(families, 'Pretendard', 900)?.weight).toBe(700)
+    expect(pickFace(families, 'Not Installed', 400)).toBeNull()
+    expect(weightName(600)).toBe('조금 굵게 (600)')
+    expect(weightName(260)).toBe('얇게 (260)')
+  })
+
+  it('opens projects saved before the weight existed with the old bold look', async () => {
+    const { parseProject } = await import('../src/shared/project')
+    const { makeProject } = await import('./fixtures/project')
+    const project = makeProject()
+    const { weight: _weight, ...oldStyle } = project.settings.style
+    const old = { ...project, settings: { ...project.settings, style: oldStyle } }
+    const parsed = parseProject(JSON.stringify(old))
+    expect(parsed.version === 2 && parsed.settings.style.weight).toBe(700)
   })
 })

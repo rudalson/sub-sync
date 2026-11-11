@@ -29,6 +29,8 @@ export interface SegmentOptions {
 
 export interface SubtitleStyle {
   font: string
+  /** CSS weight (100-900); the nearest installed face of `font` is used. */
+  weight: number
   sizePct: number
   marginPct: number
   box: boolean
@@ -98,6 +100,22 @@ export interface ExportRequest {
   outputPath: string
   ass: string
   duration: number
+  /** The family whose files libass receives, so the export finds fonts installed per user too. */
+  fontFamily?: string
+}
+
+/** One installed face, found by the WebView through `local()` and by libass through its full name. */
+export interface FontFace {
+  weight: number
+  postscript: string
+  fullName: string
+}
+
+export interface FontFamily {
+  family: string
+  localName: string | null
+  hangul: boolean
+  weights: FontFace[]
 }
 
 export interface SrtFile {
@@ -128,4 +146,5 @@ export interface Api {
   cancelExport(): Promise<void>
   onProgress(listener: (fraction: number) => void): () => void
   sentenceBoundaries(words: string[]): Promise<number[]>
+  listFonts(): Promise<FontFamily[]>
 }

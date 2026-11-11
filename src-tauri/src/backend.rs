@@ -35,6 +35,8 @@ pub struct Backend {
     pub export: Mutex<Option<Job>>,
     pub shutdown: Arc<AtomicBool>,
     children: Mutex<HashSet<u32>>,
+    /// Scanned once, on first use: reading every installed font takes a moment.
+    pub fonts: std::sync::OnceLock<crate::fonts::FontCatalog>,
 }
 impl Backend {
     pub fn new(data_dir: PathBuf, resource_dir: PathBuf) -> Result<Self, String> {
@@ -49,7 +51,11 @@ impl Backend {
             export: Mutex::new(None),
             shutdown: Arc::new(AtomicBool::new(false)),
             children: Mutex::new(HashSet::new()),
+            fonts: std::sync::OnceLock::new(),
         })
+    }
+    pub fn fonts(&self) -> &crate::fonts::FontCatalog {
+        self.fonts.get_or_init(crate::fonts::FontCatalog::load)
     }
     pub fn allow(&self, path: &Path) -> Result<PathBuf, String> {
         let canonical = path.canonicalize().map_err(|e| e.to_string())?;
@@ -641,6 +647,29 @@ pub struct ExportRequest {
     pub output_path: String,
     pub ass: String,
     pub duration: f64,
+    /// The subtitle font family; its files are handed to libass so the export matches the preview.
+    #[serde(default)]
+    pub font_family: Option<String>,
+}
+/// A uniquely named sibling folder of font copies, removed when the export ends.
+struct StagedFonts(PathBuf);
+impl Drop for StagedFonts {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+fn stage_fonts(
+    state: &Backend,
+    family: Option<&str>,
+    parent: &Path,
+) -> Result<Option<StagedFonts>, String> {
+    let Some(family) = family.filter(|family| !state.fonts().files(family).is_empty()) else {
+        return Ok(None);
+    };
+    let folder = StagedFonts(parent.join(format!(".sub-sync-fonts-{}", Uuid::new_v4())));
+    fs::create_dir(&folder.0).map_err(|e| e.to_string())?;
+    crate::fonts::copy_family(state.fonts(), family, &folder.0)?;
+    Ok(Some(folder))
 }
 pub fn export_video(
     state: Shared,
@@ -655,13 +684,22 @@ pub fn export_video(
         let parent = output.parent().ok_or("저장 폴더가 없습니다.")?;
         let ass = StagedFile::new(parent, "ass")?;
         fs::write(&ass.path, &request.ass).map_err(|e| e.to_string())?;
+        let fonts = stage_fonts(&state, request.font_family.as_deref(), parent)?;
+        // Both names are generated ASCII siblings in the working folder, so the filter needs no escaping.
+        let mut subtitles = format!("ass={}", ass.path.file_name().unwrap().to_string_lossy());
+        if let Some(fonts) = &fonts {
+            subtitles.push_str(&format!(
+                ":fontsdir={}",
+                fonts.0.file_name().unwrap().to_string_lossy()
+            ));
+        }
         let stage = StagedFile::new(parent, "mp4")?;
         let encode = |codec: &[&str]| {
             let mut args = vec![
                 "-i".into(),
                 request.media_path.clone(),
                 "-vf".into(),
-                format!("ass={}", ass.path.file_name().unwrap().to_string_lossy()),
+                subtitles.clone(),
             ];
             args.extend(codec.iter().map(|s| s.to_string()));
             args.extend(

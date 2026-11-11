@@ -3,6 +3,7 @@ import { reconstructSentencesWithPreservation, validateSentenceEnds, type Uncert
 import type { SegmentOptions, Word } from '../../../shared/types'
 import { formatTimecode } from '../player'
 import { useStore } from '../store'
+import { FontPicker } from './FontPicker'
 import { Modal } from './Modal'
 
 const MODELS = [
@@ -213,9 +214,10 @@ function ExportDialog() {
     >
       <section className="settings-group">
         <h3>자막 스타일</h3>
-        <Field label="글꼴">
-          <input value={style.font} onChange={(event) => change({ font: event.target.value })} />
-        </Field>
+        <div className="field">
+          <span>글꼴</span>
+          <FontPicker />
+        </div>
         <Field label="글자 크기 (화면 높이 %)">
           <input type="number" min={2} max={15} step={0.5} value={style.sizePct} onChange={(event) => change({ sizePct: Number(event.target.value) })} />
         </Field>

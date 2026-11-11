@@ -1,9 +1,9 @@
-import { PEAKS_PER_SECOND, type Clip, type SavedProject, type Settings, type Word } from './types'
+import { PEAKS_PER_SECOND, type Clip, type ProjectFile, type SavedProject, type Settings, type Word } from './types'
 
 export const DEFAULT_SETTINGS: Settings = {
   stt: { model: 'large-v3-turbo', language: 'en', device: 'auto' },
   segment: { maxChars: 84, maxDuration: 8, splitOnSentence: true, maxGap: 0.8 },
-  style: { font: 'Malgun Gothic', sizePct: 5, marginPct: 6, box: true },
+  style: { font: 'Malgun Gothic', weight: 700, sizePct: 5, marginPct: 6, box: true },
   dictionary: ''
 }
 
@@ -39,7 +39,8 @@ function isSettings(value: unknown): value is Settings {
     ['auto', 'cuda', 'cpu'].includes(stt.device as string) &&
     positive(segment.maxChars) && Number.isInteger(segment.maxChars) && positive(segment.maxDuration) &&
     nonnegative(segment.maxGap) && typeof segment.splitOnSentence === 'boolean' &&
-    text(style.font) && positive(style.sizePct) && nonnegative(style.marginPct) && typeof style.box === 'boolean' &&
+    text(style.font) && (style.weight === undefined || (positive(style.weight) && Number.isInteger(style.weight) && style.weight <= 1000)) &&
+    positive(style.sizePct) && nonnegative(style.marginPct) && typeof style.box === 'boolean' &&
     text(value.dictionary)
 }
 
@@ -72,7 +73,12 @@ export function validateProject(value: unknown): SavedProject {
     throw new Error('프로젝트의 재생 위치 또는 자막 경로가 손상되었습니다.')
   }
   // The checks above validate the complete persisted schema, including nested arrays.
-  return value as unknown as SavedProject
+  const project = value as unknown as ProjectFile
+  // Projects saved before the subtitle weight could be chosen drew it bold.
+  if (project.settings.style.weight === undefined) {
+    return { ...project, settings: { ...project.settings, style: { ...project.settings.style, weight: DEFAULT_SETTINGS.style.weight } } }
+  }
+  return project
 }
 
 export function parseProject(source: string): SavedProject {

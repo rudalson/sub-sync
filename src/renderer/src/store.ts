@@ -24,7 +24,9 @@ import { DEFAULT_SETTINGS } from '../../shared/project'
 import { joinWords, segmentWords } from '../../shared/segment'
 import type { SentenceBoundaryOptions } from '../../shared/sentenceBoundary'
 import { serializeSrt } from '../../shared/srt'
-import type { Clip, MediaInfo, ProjectFile, SavedProject, Settings, Word } from '../../shared/types'
+import { pickFace } from '../../shared/fonts'
+import type { Clip, FontFace, MediaInfo, ProjectFile, SavedProject, Settings, Word } from '../../shared/types'
+import { captionFont, loadFonts } from './fonts'
 import { restorePlayback, usePlayback } from './player'
 
 const api = window.api
@@ -93,10 +95,14 @@ interface State {
   remove(index: number): void
 }
 
-function fontLineRatio(font: string): number {
+async function fontLineRatio(style: Settings['style'], face: FontFace | null): Promise<number> {
+  const { fontFamily, fontWeight } = captionFont(style, face)
+  const font = `${fontWeight} 100px ${fontFamily}`
+  // The preview may not have drawn a caption yet; measure the face itself, not a fallback.
+  await document.fonts.load(font, '가A').catch(() => [])
   const context = document.createElement('canvas').getContext('2d')
   if (!context) return 1
-  context.font = `bold 100px "${font}"`
+  context.font = font
   const metrics = context.measureText('가')
   return (metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent) / 100 || 1
 }
@@ -128,7 +134,7 @@ export const useStore = create<State>((set, get) => {
         projectPath,
         projectDirty: !projectPath || !full || full.media.path !== media.path || (!full.waveform && peaks !== null),
         mediaSession: get().mediaSession + 1,
-        settings: full?.settings ?? get().settings,
+        settings: full ? mergeSettings(full.settings) : get().settings,
         follow: playback.follow,
         dialog: null,
         dragHint: null,
@@ -394,8 +400,9 @@ export const useStore = create<State>((set, get) => {
       if (!outputPath) return
       set({ job: { label: '영상 내보내는 중', progress: 0, cancel: () => void api.cancelExport() } })
       try {
-        const ass = buildAss(clips, settings.style, media.width, media.height, fontLineRatio(settings.style.font))
-        await api.startExport({ mediaPath: media.path, outputPath, ass, duration: media.duration })
+        const face = pickFace(await loadFonts(), settings.style.font, settings.style.weight)
+        const ass = buildAss(clips, settings.style, media.width, media.height, await fontLineRatio(settings.style, face), face)
+        await api.startExport({ mediaPath: media.path, outputPath, ass, duration: media.duration, fontFamily: face ? settings.style.font : undefined })
         set({ message: `내보냈습니다: ${outputPath}` })
       } catch (error) {
         set({ message: errorText(error) })
