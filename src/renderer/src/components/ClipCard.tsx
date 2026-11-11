@@ -6,7 +6,7 @@ import { useStore } from '../store'
 
 const SILENCE_CHIP = 0.25
 const SECONDS_PER_PIXEL = 0.01
-const BAR_STEP = 3
+const WAVE_STEP = 2
 
 interface Handle {
   edge: Edge
@@ -101,16 +101,26 @@ function Waveform({ start, end }: { start: number; end: number }) {
 
       // The waveform takes its color from the look's token, like every other surface.
       context.fillStyle = getComputedStyle(element).getPropertyValue('--wave').trim() || '#4fc3f7'
-      const bars = Math.max(1, Math.floor(width / BAR_STEP))
-      const span = ((end - start) * PEAKS_PER_SECOND) / bars
-      for (let bar = 0; bar < bars; bar++) {
-        const from = Math.floor(start * PEAKS_PER_SECOND + bar * span)
-        const to = Math.max(from + 1, Math.floor(start * PEAKS_PER_SECOND + (bar + 1) * span))
+      // One filled envelope mirrored around the middle. Behind the word it reads as a soft shape;
+      // separate bars would make vertical stripes that fight the letters' strokes.
+      const steps = Math.max(1, Math.floor(width / WAVE_STEP))
+      const span = ((end - start) * PEAKS_PER_SECOND) / steps
+      const half: number[] = []
+      for (let step = 0; step <= steps; step++) {
+        const from = Math.floor(start * PEAKS_PER_SECOND + Math.max(0, step - 0.5) * span)
+        const to = Math.max(from + 1, Math.floor(start * PEAKS_PER_SECOND + Math.min(steps, step + 0.5) * span))
         let peak = 0
         for (let i = from; i < to; i++) peak = Math.max(peak, peaks[i] ?? 0)
-        const barHeight = Math.max(1, (peak / 255) * height)
-        context.fillRect(bar * BAR_STEP, height - barHeight, BAR_STEP - 1, barHeight)
+        half.push(Math.max(0.5, (peak / 255) * height / 2))
       }
+      const middle = height / 2
+      const x = (step: number) => (step / steps) * width
+      context.beginPath()
+      context.moveTo(0, middle - half[0])
+      half.forEach((value, step) => context.lineTo(x(step), middle - value))
+      for (let step = half.length - 1; step >= 0; step--) context.lineTo(x(step), middle + half[step])
+      context.closePath()
+      context.fill()
     })
     paintObserver.observe(element)
     return () => paintObserver.unobserve(element)
@@ -180,8 +190,8 @@ const ChipView = memo(function ChipView({ chip, index, active }: { chip: Chip; i
       title={`${chip.start.toFixed(2)} ~ ${chip.end.toFixed(2)}초`}
     >
       <button className="chip-content" onClick={() => seek(chip.start)} aria-label={chip.label + ', ' + formatTimecode(chip.start) + '로 이동'}>
-        <span className="chip-label">{chip.label}</span>
         <Waveform start={chip.start} end={chip.end} />
+        <span className="chip-label">{chip.label}</span>
       </button>
       {chip.left && <EdgeHandle index={index} handle={chip.left} side="left" />}
       <EdgeHandle index={index} handle={chip.right} side="right" />
