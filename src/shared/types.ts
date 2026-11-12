@@ -133,6 +133,28 @@ export interface ImportProgress {
   progress: number | null
 }
 
+/** One subtitle line for the translation agent: its position (1-based) and its text. */
+export interface TranslateCue {
+  id: number
+  text: string
+}
+
+export interface TranslateRequest {
+  /** English source, in subtitle order. */
+  cues: TranslateCue[]
+  /** Korean kept from an interrupted run; these cues are not sent again. */
+  done: TranslateCue[]
+  /** Terms the translation keeps exactly as written. */
+  glossary: string[]
+}
+
+export interface TranslateProgress {
+  label: string
+  progress: number | null
+  /** Cues finished by this step. */
+  translations: TranslateCue[]
+}
+
 export interface Api {
   pickMedia(): Promise<string | null>
   pickImportDirectory(initial: string | null): Promise<string | null>
@@ -160,6 +182,9 @@ export interface Api {
   onSttEvent(listener: (event: SttEvent) => void): () => void
   startExport(request: ExportRequest): Promise<void>
   cancelExport(): Promise<void>
+  startAgentTranslate(request: TranslateRequest): Promise<TranslateCue[]>
+  cancelAgentTranslate(): Promise<void>
+  onTranslateProgress(listener: (event: TranslateProgress) => void): () => void
   onProgress(listener: (fraction: number) => void): () => void
   sentenceBoundaries(words: string[]): Promise<number[]>
   listFonts(): Promise<FontFamily[]>

@@ -471,6 +471,24 @@ pub fn cancel_export(state: State<'_, Shared>) {
     backend::cancel(&state.export);
 }
 #[tauri::command]
+pub async fn start_agent_translate(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    request: crate::translate::TranslateRequest,
+) -> Result<Vec<crate::translate::TranslateCue>, String> {
+    let state = state.inner().clone();
+    worker(move || {
+        crate::translate::translate(state, request, move |event| {
+            let _ = app.emit("translate-progress", event);
+        })
+    })
+    .await
+}
+#[tauri::command]
+pub fn cancel_agent_translate(state: State<'_, Shared>) {
+    backend::cancel(&state.translate);
+}
+#[tauri::command]
 pub fn close_window(window: WebviewWindow, state: State<'_, Shared>) -> Result<(), String> {
     state.cancel_jobs();
     window.destroy().map_err(|e| e.to_string())

@@ -1,4 +1,4 @@
-import { BookOpen, Captions, Combine, Download, FileUp, FileVideo2, FolderOpen, Redo2, Scissors, Undo2, Upload } from 'lucide-react'
+import { BookOpen, Bot, Captions, Combine, Download, FileUp, FileVideo2, FolderOpen, Redo2, Scissors, Undo2, Upload } from 'lucide-react'
 import englishFlag from '../assets/flags/us.svg'
 import koreanFlag from '../assets/flags/kr.svg'
 import { useStore } from '../store'
@@ -78,6 +78,14 @@ export function Toolbar() {
         <div className="command-group secondary-tools">
           <button className="quiet" disabled={busy} onClick={() => void useStore.getState().loadSrt()}>
             <FileUp size={16} aria-hidden="true" />SRT 불러오기
+          </button>
+          <button
+            className="quiet"
+            disabled={busy || !hasClips}
+            onClick={() => useStore.getState().setDialog('agentTranslate')}
+            title="Antigravity Agent를 사용해 한국어 자막으로 번역합니다"
+          >
+            <Bot size={16} aria-hidden="true" />Agent 번역
           </button>
           {media && projectSubtitles.length > 0 && (
             <div className="project-subtitles" role="group" aria-label="프로젝트 폴더의 자막">

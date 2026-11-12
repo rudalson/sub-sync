@@ -7,6 +7,7 @@ const api = {
   pickProject: vi.fn(), saveProject: vi.fn(), autosaveProject: vi.fn(),
   listProjectSubtitles: vi.fn(), readProjectSrt: vi.fn(), pickSrt: vi.fn(),
   importVideo: vi.fn(), cancelImportVideo: vi.fn(), onImportProgress: vi.fn(),
+  startAgentTranslate: vi.fn(), cancelAgentTranslate: vi.fn(), onTranslateProgress: vi.fn(),
   saveSettings: vi.fn(), loadSettings: vi.fn(), onProgress: vi.fn(),
   startStt: vi.fn(), onSttEvent: vi.fn(), saveSrt: vi.fn(), closeWindow: vi.fn(), confirm: vi.fn()
 }
@@ -39,6 +40,8 @@ beforeEach(() => {
   api.closeWindow.mockResolvedValue(undefined)
   api.onImportProgress.mockReturnValue(vi.fn())
   api.cancelImportVideo.mockResolvedValue(undefined)
+  api.onTranslateProgress.mockReturnValue(vi.fn())
+  api.cancelAgentTranslate.mockResolvedValue(undefined)
 })
 
 afterEach(async () => {
@@ -525,5 +528,93 @@ describe('project editing session', () => {
     expect(useStore.getState().clips).toEqual(clips)
     useStore.getState().redo()
     expect(useStore.getState().clips.find((clip) => clip.id === title.id)).toEqual(title)
+  })
+
+  it('sends English cues to the agent, applies the answer by clip and saves it as the project Korean subtitle', async () => {
+    await useStore.getState().openMedia()
+    const english = { id: 'second', start: 7, end: 9, text: 'Notice that we use products.', words: [{ text: 'Notice', start: 7, end: 9 }] }
+    useStore.setState({ clips: [...makeProject().clips, english], settings: { ...useStore.getState().settings, dictionary: 'rest full => RESTful\nKubernetes' } })
+    let progressListener: ((event: { label: string; progress: number | null; translations: { id: number; text: string }[] }) => void) | undefined
+    api.onTranslateProgress.mockImplementation((listener) => {
+      progressListener = listener
+      return vi.fn()
+    })
+    api.startAgentTranslate.mockImplementation(async () => {
+      progressListener?.({ label: 'Agent 번역 중 · 1–3 / 2', progress: 0.5, translations: [] })
+      expect(useStore.getState().job?.label).toBe('Agent 번역 중 · 1–3 / 2')
+      return [{ id: 1, text: '안녕하세요, 여러분.' }, { id: 3, text: '저희는 products를 씁니다.' }]
+    })
+    api.saveSrt.mockImplementation(async (_content, path) => path)
+
+    await useStore.getState().startAgentTranslate()
+
+    // The first clip already shows Korean, so its recognised English words are sent instead; the empty clip is skipped.
+    expect(api.startAgentTranslate).toHaveBeenCalledExactlyOnceWith({
+      cues: [{ id: 1, text: 'Hello world.' }, { id: 3, text: 'Notice that we use products.' }],
+      done: [],
+      glossary: ['RESTful', 'Kubernetes']
+    })
+    const clips = useStore.getState().clips
+    expect(clips.map((clip) => clip.text)).toEqual(['안녕하세요, 여러분.', '', '저희는 products를 씁니다.'])
+    expect(clips[0].words).toEqual(makeProject().clips[0].words)
+    const [content, path] = api.saveSrt.mock.calls[0]
+    expect(path).toBe('C:\\Videos\\원본.ko.srt')
+    expect(parseSrt(content).map((cue) => cue.text)).toEqual(['안녕하세요, 여러분.', '저희는 products를 씁니다.'])
+    expect(useStore.getState().srtPath).toBe('C:\\Videos\\원본.ko.srt')
+    expect(useStore.getState().message).toContain('원본.ko.srt')
+    expect(useStore.getState().job).toBeNull()
+    useStore.getState().undo()
+    expect(useStore.getState().clips[2].text).toBe('Notice that we use products.')
+  })
+
+  it('asks before replacing an existing Korean subtitle file', async () => {
+    api.listProjectSubtitles.mockResolvedValue([{ path: 'C:\\Videos\\원본.ko.srt', language: 'ko' }])
+    await useStore.getState().openMedia()
+    useStore.setState({ clips: makeProject().clips })
+    api.confirm.mockResolvedValue(false)
+
+    await useStore.getState().startAgentTranslate()
+    expect(api.confirm).toHaveBeenCalledOnce()
+    expect(api.startAgentTranslate).not.toHaveBeenCalled()
+    expect(useStore.getState().job).toBeNull()
+  })
+
+  it('keeps the cues finished before a failure and sends only the rest on the next run', async () => {
+    await useStore.getState().openMedia()
+    const clips = [1, 2, 3].map((n) => ({ id: `c${n}`, start: n, end: n + 0.5, text: `line ${n}`, words: [] }))
+    useStore.setState({ clips })
+    let progressListener: ((event: { label: string; progress: number | null; translations: { id: number; text: string }[] }) => void) | undefined
+    api.onTranslateProgress.mockImplementation((listener) => {
+      progressListener = listener
+      return vi.fn()
+    })
+    api.startAgentTranslate.mockImplementationOnce(async () => {
+      progressListener?.({ label: '', progress: 0.33, translations: [{ id: 1, text: '첫 줄' }] })
+      throw new Error('2–3번 자막을 3번 시도했지만 번역하지 못했습니다')
+    })
+
+    await useStore.getState().startAgentTranslate()
+    expect(useStore.getState().message).toContain('번역하지 못했습니다')
+    expect(useStore.getState().message).toContain('1/3개')
+    expect(useStore.getState().clips).toBe(clips)
+    expect(api.saveSrt).not.toHaveBeenCalled()
+    expect(useStore.getState().job).toBeNull()
+
+    api.startAgentTranslate.mockResolvedValueOnce([{ id: 1, text: '첫 줄' }, { id: 2, text: '둘째 줄' }, { id: 3, text: '셋째 줄' }])
+    api.saveSrt.mockResolvedValue('C:\\Videos\\원본.ko.srt')
+    await useStore.getState().startAgentTranslate()
+    expect(api.startAgentTranslate.mock.calls[1][0].done).toEqual([{ id: 1, text: '첫 줄' }])
+    expect(useStore.getState().clips.map((clip) => clip.text)).toEqual(['첫 줄', '둘째 줄', '셋째 줄'])
+  })
+
+  it('reports agent errors and clears the job overlay', async () => {
+    await useStore.getState().openMedia()
+    useStore.setState({ clips: makeProject().clips })
+    api.startAgentTranslate.mockRejectedValue(new Error('Antigravity CLI(agy)를 실행할 수 없습니다.'))
+
+    await useStore.getState().startAgentTranslate()
+    expect(useStore.getState().job).toBeNull()
+    expect(useStore.getState().message).toContain('Antigravity CLI(agy)를 실행할 수 없습니다')
+    expect(useStore.getState().message).not.toContain('이어서')
   })
 })

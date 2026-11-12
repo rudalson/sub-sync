@@ -113,6 +113,23 @@ describe('Tauri frontend bridge', () => {
     mocks.invoke.mockRejectedValue(new Error('pySBD is missing'))
     await expect(api.sentenceBoundaries(words)).rejects.toThrow('pySBD')
   })
+  it('forwards agent translation commands and translates progress', async () => {
+    await initializeNativeApi()
+    const request = { cues: [{ id: 1, text: 'Hello' }], done: [], glossary: ['RESTful'] }
+    mocks.invoke.mockResolvedValueOnce([{ id: 1, text: '안녕하세요' }])
+    expect(await api.startAgentTranslate(request)).toEqual([{ id: 1, text: '안녕하세요' }])
+    expect(mocks.invoke).toHaveBeenLastCalledWith('start_agent_translate', { request })
+    mocks.invoke.mockResolvedValueOnce(undefined)
+    await api.cancelAgentTranslate()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('cancel_agent_translate')
+
+    const progress = vi.fn()
+    const unsubscribe = api.onTranslateProgress(progress)
+    const event = { label: 'Agent 번역 중 · 1–40 / 80', progress: 0.5, translations: [{ id: 1, text: '안녕하세요' }] }
+    mocks.events.get('translate-progress')!({ payload: event })
+    expect(progress).toHaveBeenCalledWith(event)
+    unsubscribe()
+  })
   it('allows the window to close if the editor did not finish starting', async () => {
     await initializeNativeApi()
     const event = { preventDefault: vi.fn() }

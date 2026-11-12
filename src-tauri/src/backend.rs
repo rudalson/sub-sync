@@ -34,6 +34,7 @@ pub struct Backend {
     pub stt: Mutex<Option<Job>>,
     pub export: Mutex<Option<Job>>,
     pub download: Mutex<Option<Job>>,
+    pub translate: Mutex<Option<Job>>,
     pub shutdown: Arc<AtomicBool>,
     children: Mutex<HashSet<u32>>,
     /// Scanned once, on first use: reading every installed font takes a moment.
@@ -51,6 +52,7 @@ impl Backend {
             stt: Mutex::new(None),
             export: Mutex::new(None),
             download: Mutex::new(None),
+            translate: Mutex::new(None),
             shutdown: Arc::new(AtomicBool::new(false)),
             children: Mutex::new(HashSet::new()),
             fonts: std::sync::OnceLock::new(),
@@ -77,6 +79,7 @@ impl Backend {
         cancel(&self.stt);
         cancel(&self.export);
         cancel(&self.download);
+        cancel(&self.translate);
         for &pid in self.children.lock().unwrap().iter() {
             terminate(pid);
         }

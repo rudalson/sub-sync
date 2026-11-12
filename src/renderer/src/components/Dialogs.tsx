@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { FolderOpen } from 'lucide-react'
 import { reconstructSentencesWithPreservation, validateSentenceEnds, type UncertaintyReason } from '../../../shared/sentenceBoundary'
 import type { SegmentOptions, Word } from '../../../shared/types'
+import { stripExtension } from '../../../shared/pipeline'
+import { translationCues, translationTarget } from '../../../shared/translate'
 import { formatTimecode } from '../player'
-import { useStore } from '../store'
+import { resumableTranslations, useStore } from '../store'
 import { FontPicker } from './FontPicker'
 import { Modal } from './Modal'
 
@@ -434,6 +436,58 @@ function SentenceBoundaryDialog() {
   )
 }
 
+function AgentTranslateDialog() {
+  const store = useStore.getState()
+  const media = useStore((state) => state.media)
+  const projectPath = useStore((state) => state.projectPath)
+  const clips = useStore((state) => state.clips)
+  const busy = useStore((state) => state.job !== null)
+
+  const cues = useMemo(() => translationCues(clips), [clips])
+  const resumable = resumableTranslations(cues)
+  const base = projectPath ?? media?.path
+  const fileName = base ? translationTarget(stripExtension(base)).split(/[\\/]/).pop() : null
+
+  return (
+    <Dialog
+      title="Agent 자막 번역"
+      description="Antigravity Agent가 영어 자막을 정중한 한국어 구어체 존댓말로 번역합니다."
+      onClose={() => { if (!busy) store.setDialog(null) }}
+      footer={
+        <button className="primary" disabled={busy || cues.length === 0} onClick={() => void store.startAgentTranslate()}>
+          {resumable > 0 ? '이어서 번역' : '번역 시작'}
+        </button>
+      }
+    >
+      <div className="dialog-stack">
+        <div className="stats-grid">
+          <div className="stat-card">
+            <div className="stat-label">번역할 자막</div>
+            <div className="stat-value">{cues.length}개</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">저장 파일</div>
+            <div className="stat-value file-name">{fileName ?? '—'}</div>
+          </div>
+        </div>
+        {resumable > 0 && (
+          <div className="callout info">
+            <strong>이전 번역 {resumable}/{cues.length}개를 이어서 씁니다</strong>
+            <p>중단된 번역에서 끝난 자막은 다시 보내지 않습니다.</p>
+          </div>
+        )}
+        <div className="callout">
+          <strong>설치된 Antigravity CLI(agy)와 요금제 쿼터를 사용합니다</strong>
+          <p>
+            자막을 작은 묶음으로 나눠 번호와 영어 문장만 보내고, 같은 번호로 돌아온 번역만 받아 적용합니다. 시간 정보는 Agent에 보내지 않습니다.
+            Agent는 도구 권한 없이 빈 폴더에서 실행되며, 응답이 어긋나면 그 묶음만 다시 요청합니다. 단어 사전의 용어는 표기 그대로 씁니다.
+          </p>
+        </div>
+      </div>
+    </Dialog>
+  )
+}
+
 export function Dialogs() {
   const dialog = useStore((state) => state.dialog)
   if (dialog === 'import') return <ImportVideoDialog />
@@ -442,5 +496,6 @@ export function Dialogs() {
   if (dialog === 'recut') return <RecutDialog />
   if (dialog === 'dictionary') return <DictionaryDialog />
   if (dialog === 'export') return <ExportDialog />
+  if (dialog === 'agentTranslate') return <AgentTranslateDialog />
   return null
 }

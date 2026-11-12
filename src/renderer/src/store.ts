@@ -24,9 +24,10 @@ import { DEFAULT_SETTINGS } from '../../shared/project'
 import { joinWords, segmentWords } from '../../shared/segment'
 import type { SentenceBoundaryOptions } from '../../shared/sentenceBoundary'
 import { serializeSrt } from '../../shared/srt'
+import { applyTranslations, glossaryTerms, translationCues, translationTarget } from '../../shared/translate'
 import { parseVideoUrl } from '../../shared/videoImport'
 import { pickFace } from '../../shared/fonts'
-import type { Clip, FontFace, MediaInfo, ProjectFile, ProjectSubtitle, SavedProject, Settings, Word } from '../../shared/types'
+import type { Clip, FontFace, MediaInfo, ProjectFile, ProjectSubtitle, SavedProject, Settings, TranslateCue, Word } from '../../shared/types'
 import { captionFont, loadFonts } from './fonts'
 import { restorePlayback, usePlayback } from './player'
 
@@ -36,7 +37,24 @@ const HISTORY_LIMIT = 100
 let restoringProject = false
 let savingProject = false
 
-export type DialogName = 'import' | 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary'
+/**
+ * Korean finished by an interrupted agent translation, kept for the same English source so the
+ * next run only sends what is left. Lives for the session; a changed source starts over.
+ */
+let translationDraft: { key: string; done: Map<number, string> } | null = null
+
+function translationDraftFor(cues: TranslateCue[]) {
+  const key = JSON.stringify(cues)
+  if (translationDraft?.key !== key) translationDraft = { key, done: new Map() }
+  return translationDraft
+}
+
+/** How many cues an earlier, interrupted run already translated for this source. */
+export function resumableTranslations(cues: TranslateCue[]): number {
+  return translationDraft?.key === JSON.stringify(cues) ? translationDraft.done.size : 0
+}
+
+export type DialogName = 'import' | 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary' | 'agentTranslate'
 
 interface Job {
   label: string
@@ -88,6 +106,7 @@ interface State {
   applySentenceBoundary(sourceClips: Clip[], sentenceEnds: number[], options?: SentenceBoundaryOptions): boolean
   applyDictionaryNow(): void
   exportVideo(): Promise<void>
+  startAgentTranslate(): Promise<void>
 
   beginEdit(): void
   undo(): void
@@ -494,6 +513,57 @@ export const useStore = create<State>((set, get) => {
         set({ message: errorText(error) })
       } finally {
         set({ job: null })
+      }
+    },
+
+    async startAgentTranslate() {
+      const { media, projectPath, clips, job, settings, mediaSession, projectSubtitles } = get()
+      if (job || !media || clips.length === 0) return
+      const cues = translationCues(clips)
+      if (cues.length === 0) {
+        set({ dialog: null, message: '번역할 영어 자막이 없습니다.' })
+        return
+      }
+      const targetPath = translationTarget(stripExtension(projectPath ?? media.path))
+      const fileName = targetPath.split(/[\\/]/).pop()
+      const exists = projectSubtitles.some((subtitle) => subtitle.path.toLowerCase() === targetPath.toLowerCase())
+      if (exists && !(await api.confirm(`${fileName} 파일을 새 번역으로 덮어쓸까요?`, '기존 한국어 자막은 사라집니다. 편집 화면의 자막은 실행 취소로 되돌릴 수 있습니다.'))) return
+      if (get().job || get().mediaSession !== mediaSession) return
+
+      const draft = translationDraftFor(cues)
+      const unsubscribe = api.onTranslateProgress((event) => {
+        for (const line of event.translations) draft.done.set(line.id, line.text)
+        if (get().mediaSession !== mediaSession) return
+        set((state) => (state.job ? { job: { ...state.job, label: event.label, progress: event.progress } } : {}))
+      })
+      set({
+        dialog: null,
+        job: { label: 'Agent 번역 준비 중', progress: draft.done.size / cues.length, cancel: () => void api.cancelAgentTranslate() }
+      })
+
+      try {
+        const translations = await api.startAgentTranslate({
+          cues,
+          done: [...draft.done].map(([id, text]) => ({ id, text })),
+          glossary: glossaryTerms(settings.dictionary)
+        })
+        if (get().mediaSession !== mediaSession) return
+        translationDraft = null
+        const translated = applyTranslations(get().clips, clips, translations)
+        commit(translated)
+        // Written as a companion of the project, so the language buttons can switch back to it.
+        const path = await api.saveSrt(serializeSrt(translated), targetPath, targetPath)
+        set({ srtPath: path ?? targetPath, message: `Agent 번역을 마치고 저장했습니다: ${fileName}` })
+        await refreshProjectSubtitles()
+      } catch (error) {
+        if (get().mediaSession !== mediaSession) return
+        const kept = draft.done.size > 0 && draft.done.size < cues.length
+          ? ` 번역한 ${draft.done.size}/${cues.length}개는 기억해 두었다가 다시 시작하면 이어서 번역합니다.`
+          : ''
+        set({ message: `Agent 번역 실패: ${errorText(error)}${kept}` })
+      } finally {
+        unsubscribe()
+        if (get().mediaSession === mediaSession) set({ job: null })
       }
     },
 

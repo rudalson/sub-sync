@@ -7,6 +7,7 @@ mod project;
 mod stream;
 #[cfg(test)]
 mod tests;
+mod translate;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -66,6 +67,8 @@ pub fn run() {
             commands::list_fonts,
             commands::start_export,
             commands::cancel_export,
+            commands::start_agent_translate,
+            commands::cancel_agent_translate,
             commands::close_window
         ])
         .build(tauri::generate_context!())
