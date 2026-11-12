@@ -1,4 +1,4 @@
-import { BookOpen, Captions, Combine, FileUp, FileVideo2, FolderOpen, Redo2, Scissors, Undo2, Upload } from 'lucide-react'
+import { BookOpen, Captions, Combine, Download, FileUp, FileVideo2, FolderOpen, Redo2, Scissors, Undo2, Upload } from 'lucide-react'
 import englishFlag from '../assets/flags/us.svg'
 import koreanFlag from '../assets/flags/kr.svg'
 import { useStore } from '../store'
@@ -56,6 +56,9 @@ export function Toolbar() {
       <nav className="command-bar" aria-label="자막 작업 도구">
         {/* All quiet: the next step's accent lives on the empty state's own button, said once. */}
         <div className="command-group">
+          <button className="quiet" disabled={busy} onClick={() => useStore.getState().setDialog('import')}>
+            <Download size={16} aria-hidden="true" />영상 가져오기
+          </button>
           <button className="quiet" onClick={() => void useStore.getState().openMedia()}>
             <FileVideo2 size={16} aria-hidden="true" />영상 열기
           </button>

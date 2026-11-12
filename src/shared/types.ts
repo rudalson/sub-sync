@@ -128,8 +128,17 @@ export interface ProjectSubtitle {
   language: string | null
 }
 
+export interface ImportProgress {
+  label: string
+  progress: number | null
+}
+
 export interface Api {
   pickMedia(): Promise<string | null>
+  pickImportDirectory(initial: string | null): Promise<string | null>
+  importVideo(url: string, targetDir: string): Promise<string>
+  cancelImportVideo(): Promise<void>
+  onImportProgress(listener: (event: ImportProgress) => void): () => void
   openMedia(path: string): Promise<MediaInfo>
   loadPeaks(path: string): Promise<Uint8Array | null>
   pickSrt(): Promise<SrtFile | null>

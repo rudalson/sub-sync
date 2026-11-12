@@ -4,7 +4,7 @@
 
 ## 준비물
 
-- Node.js 22.12 이상 (개발·빌드용)
+- Node.js 22.12 이상 (개발·빌드 및 YouTube URL 가져오기)
 - Rust stable, MSVC 빌드 도구 (Visual Studio Build Tools의 Desktop development with C++)
 - Windows WebView2 Runtime (Windows 11에는 기본 포함)
 - Python 3.10~3.12
@@ -15,7 +15,7 @@
 
 ```powershell
 npm install
-npm run setup:backend   # backend/.venv에 faster-whisper 설치
+npm run setup:backend   # backend/.venv에 faster-whisper, pySBD, yt-dlp 설치
 npm run setup:skills    # AI 에이전트용 스킬 설치 (skills-lock.json 기준)
 npm run dev             # Tauri + Vite 개발 실행
 npm start               # 최적화된 Rust 릴리스 빌드 후 실행
@@ -43,7 +43,7 @@ AI 에이전트(Claude Code, Codex)로 작업할 때 쓰는 스킬은 저장소�
 
 ## 사용 순서
 
-1. **영상 열기**: 브라우저가 재생하지 못하는 형식(mkv, HEVC 등)은 재생용 mp4를 자동으로 만듭니다. 내보내기는 항상 원본을 씁니다.
+1. **영상 가져오기 / 영상 열기**: URL로 영상을 저장하거나 로컬 영상을 엽니다. 브라우저가 재생하지 못하는 형식(mkv, HEVC 등)은 재생용 mp4를 자동으로 만듭니다. 내보내기는 항상 원본을 씁니다.
 2. **자막 생성**: 모델, 언어, 자막 길이를 고르고 시작합니다.
 3. **편집**: 칩을 눌러 해당 위치로 이동합니다.
    - 칩 경계를 드래그하면 단어 시간이 바뀝니다 (1px = 0.01초).
@@ -52,6 +52,12 @@ AI 에이전트(Claude Code, Codex)로 작업할 때 쓰는 스킬은 저장소�
    - 카드 아래의 문장 입력 칸이 실제 자막입니다. 시작·종료 시각은 밀리초 단위로 표시합니다.
 4. **프로젝트 저장**: `.subsync` 파일로 현재 편집 상태를 저장합니다. 다음 작업 때 **프로젝트 열기**로 복원합니다.
 5. **SRT 저장 / 영상 내보내기**
+
+**영상 가져오기**는 **영상 열기** 왼쪽에 있습니다. YouTube 등의 `http://`·`https://` URL과 저장 폴더를 지정하면 영상 한 개를 내려받고 바로 엽니다. 저장 폴더는 현재 프로젝트·영상 폴더로 시작하며 다른 폴더를 선택할 수 있습니다. 재생목록 링크는 첫 번째 영상만 처리합니다. 진행률을 표시하며 취소하거나 다운로드에 실패하면 현재 프로젝트를 유지합니다. 이미 받은 같은 영상은 덮어쓰지 않습니다.
+
+다운로드 중에는 파일명에 영상 ID를 붙이고, 완료하면 `영상 제목.mp4`처럼 ID를 제거합니다. 제목 안의 대괄호는 보존하며, 같은 제목의 다른 영상이 있으면 `영상 제목 (2).mp4`처럼 번호를 붙입니다.
+
+다운로드에는 [yt-dlp](https://github.com/yt-dlp/yt-dlp)를 사용합니다. `SUB_SYNC_YT_DLP`, 앱 리소스의 `tools/yt-dlp.exe`, PATH의 `yt-dlp` 순서로 찾고, 없으면 기존 Python 환경의 `yt_dlp` 모듈을 실행합니다. 기존 환경에는 `npm run setup:backend`(설치형 앱은 `npm run setup:backend:installed`)로 의존성을 추가할 수 있습니다. YouTube 처리를 위해 기존 Node.js 런타임을 사용하며 [공식 EJS 안내](https://github.com/yt-dlp/yt-dlp/wiki/EJS)에 따라 `yt-dlp[default]`를 설치합니다.
 
 자막 글꼴과 굵기는 영상 미리보기 위쪽에서 고릅니다. 이 PC에 설치된 글꼴(사용자 글꼴 포함)을 한글 지원·영문으로 나눠 보여 주고, 고르는 즉시 미리보기 자막에 반영됩니다. 영상 내보내기는 선택한 글꼴 파일을 ffmpeg(libass)에 직접 넘겨 미리보기와 같은 글꼴·굵기로 자막을 입힙니다.
 

@@ -6,6 +6,7 @@ const api = {
   pickMedia: vi.fn(), openMedia: vi.fn(), loadPeaks: vi.fn(), loadProject: vi.fn(),
   pickProject: vi.fn(), saveProject: vi.fn(), autosaveProject: vi.fn(),
   listProjectSubtitles: vi.fn(), readProjectSrt: vi.fn(), pickSrt: vi.fn(),
+  importVideo: vi.fn(), cancelImportVideo: vi.fn(), onImportProgress: vi.fn(),
   saveSettings: vi.fn(), loadSettings: vi.fn(), onProgress: vi.fn(),
   startStt: vi.fn(), onSttEvent: vi.fn(), saveSrt: vi.fn(), closeWindow: vi.fn(), confirm: vi.fn()
 }
@@ -36,6 +37,8 @@ beforeEach(() => {
   api.loadSettings.mockResolvedValue({})
   api.saveSettings.mockResolvedValue(undefined)
   api.closeWindow.mockResolvedValue(undefined)
+  api.onImportProgress.mockReturnValue(vi.fn())
+  api.cancelImportVideo.mockResolvedValue(undefined)
 })
 
 afterEach(async () => {
@@ -46,6 +49,100 @@ afterEach(async () => {
 })
 
 describe('project editing session', () => {
+  it('downloads a URL into the selected directory and opens the video without a file picker', async () => {
+    const downloaded = { ...media, path: 'C:\\Downloads\\가져온 영상.mp4' }
+    api.importVideo.mockResolvedValue(downloaded.path)
+    api.openMedia.mockResolvedValue(downloaded)
+    useStore.getState().setDialog('import')
+    expect(await useStore.getState().importVideo(' https://youtu.be/abc123 ', 'C:\\Downloads')).toBe(true)
+    expect(api.importVideo).toHaveBeenCalledExactlyOnceWith('https://youtu.be/abc123', 'C:\\Downloads')
+    expect(api.openMedia).toHaveBeenCalledExactlyOnceWith(downloaded.path)
+    expect(api.loadProject).toHaveBeenCalledExactlyOnceWith(downloaded.path)
+    expect(api.pickMedia).not.toHaveBeenCalled()
+    expect(useStore.getState().media).toEqual(downloaded)
+    expect(useStore.getState().dialog).toBeNull()
+    expect(useStore.getState().job).toBeNull()
+    expect(useStore.getState().importError).toBeNull()
+    expect(api.onImportProgress.mock.results[0].value).toHaveBeenCalledOnce()
+  })
+
+  it('shows URL validation and missing-directory errors before starting a download', async () => {
+    expect(await useStore.getState().importVideo('file:///C:/video.mp4', 'C:\\Downloads')).toBe(false)
+    expect(useStore.getState().importError).toContain('URL')
+    expect(await useStore.getState().importVideo('https://youtu.be/abc123', '')).toBe(false)
+    expect(useStore.getState().importError).toContain('폴더')
+    expect(api.importVideo).not.toHaveBeenCalled()
+    expect(useStore.getState().job).toBeNull()
+  })
+
+  it('keeps the existing editing session when the URL download fails', async () => {
+    api.loadProject.mockResolvedValue(makeProject())
+    await useStore.getState().openMedia()
+    useStore.getState().editText(0, '가져오기 전 편집')
+    const previous = useStore.getState()
+    useStore.getState().setDialog('import')
+    api.importVideo.mockRejectedValue(new Error('지원하지 않는 URL입니다.'))
+    expect(await useStore.getState().importVideo('https://example.com/not-a-video', 'C:\\Downloads')).toBe(false)
+    expect(useStore.getState().media).toBe(previous.media)
+    expect(useStore.getState().clips).toBe(previous.clips)
+    expect(useStore.getState().mediaSession).toBe(previous.mediaSession)
+    expect(useStore.getState().dialog).toBe('import')
+    expect(useStore.getState().importError).toContain('지원하지 않는 URL')
+    expect(useStore.getState().job).toBeNull()
+  })
+
+  it('updates progress and waits for cancellation before allowing another import', async () => {
+    await useStore.getState().openMedia()
+    const previous = useStore.getState()
+    let rejectDownload!: (error: Error) => void
+    api.importVideo.mockImplementation(() => new Promise<string>((_resolve, reject) => { rejectDownload = reject }))
+    const pending = useStore.getState().importVideo('https://youtu.be/abc123', 'C:\\Downloads')
+    await vi.waitFor(() => expect(api.importVideo).toHaveBeenCalledOnce())
+    const progress = api.onImportProgress.mock.calls[0][0]
+    progress({ label: '영상 다운로드 중', progress: 0.5 })
+    expect(useStore.getState().job?.progress).toBe(0.5)
+    useStore.getState().job?.cancel?.()
+    expect(api.cancelImportVideo).toHaveBeenCalledOnce()
+    expect(useStore.getState().job?.label).toBe('가져오기 취소 중')
+    progress({ label: '영상 다운로드 중', progress: 0.75 })
+    expect(useStore.getState().job?.label).toBe('가져오기 취소 중')
+    expect(await useStore.getState().importVideo('https://youtu.be/other', 'C:\\Downloads')).toBe(false)
+    rejectDownload(new Error('작업을 취소했습니다.'))
+    expect(await pending).toBe(false)
+    expect(useStore.getState().media).toBe(previous.media)
+    expect(useStore.getState().mediaSession).toBe(previous.mediaSession)
+    expect(useStore.getState().job).toBeNull()
+    expect(useStore.getState().importError).toBeNull()
+    expect(api.importVideo).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the old project when a downloaded file cannot be opened as a video', async () => {
+    await useStore.getState().openMedia()
+    const previous = useStore.getState()
+    api.importVideo.mockResolvedValue('C:\\Downloads\\broken.mp4')
+    api.openMedia.mockRejectedValue(new Error('영상 파일이 아닙니다.'))
+    expect(await useStore.getState().importVideo('https://example.com/broken.mp4', 'C:\\Downloads')).toBe(false)
+    expect(useStore.getState().media).toBe(previous.media)
+    expect(useStore.getState().mediaSession).toBe(previous.mediaSession)
+    expect(useStore.getState().importError).toContain('영상 파일이 아닙니다')
+    expect(useStore.getState().job).toBeNull()
+  })
+
+  it('delivers an early cancellation as soon as the native download job starts', async () => {
+    let rejectDownload!: (error: Error) => void
+    api.importVideo.mockImplementation(() => new Promise<string>((_resolve, reject) => { rejectDownload = reject }))
+    const pending = useStore.getState().importVideo('https://youtu.be/abc123', 'C:\\Downloads')
+    await vi.waitFor(() => expect(api.importVideo).toHaveBeenCalledOnce())
+    useStore.getState().job?.cancel?.()
+    expect(api.cancelImportVideo).not.toHaveBeenCalled()
+    api.onImportProgress.mock.calls[0][0]({ label: '영상 URL 확인 중', progress: null })
+    expect(api.cancelImportVideo).toHaveBeenCalledOnce()
+    rejectDownload(new Error('작업을 취소했습니다.'))
+    expect(await pending).toBe(false)
+    expect(useStore.getState().media).toBeNull()
+    expect(useStore.getState().job).toBeNull()
+  })
+
   it('releases the progress overlay when starting the native STT process fails', async () => {
     await useStore.getState().openMedia()
     api.onSttEvent.mockReturnValue(vi.fn())

@@ -1,5 +1,6 @@
 mod backend;
 mod commands;
+mod download;
 mod files;
 mod fonts;
 mod project;
@@ -42,6 +43,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::pick_media,
+            commands::pick_import_directory,
+            commands::import_video,
+            commands::cancel_import_video,
             commands::open_media,
             commands::load_peaks,
             commands::pick_srt,

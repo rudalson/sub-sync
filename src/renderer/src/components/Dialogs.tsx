@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { FolderOpen } from 'lucide-react'
 import { reconstructSentencesWithPreservation, validateSentenceEnds, type UncertaintyReason } from '../../../shared/sentenceBoundary'
 import type { SegmentOptions, Word } from '../../../shared/types'
 import { formatTimecode } from '../player'
@@ -101,6 +102,66 @@ function LengthFields() {
         문장이 끝나면 나누기
       </label>
     </>
+  )
+}
+
+function ImportVideoDialog() {
+  const currentPath = useStore((state) => state.projectPath ?? state.media?.path)
+  const busy = useStore((state) => state.job !== null)
+  const importError = useStore((state) => state.importError)
+  const [url, setUrl] = useState('')
+  const [targetDir, setTargetDir] = useState(() => currentPath?.replace(/[^\\/]+$/, '') ?? '')
+  const [picking, setPicking] = useState(false)
+  const [pickerError, setPickerError] = useState<string | null>(null)
+  const store = useStore.getState()
+  const error = pickerError ?? importError
+
+  async function chooseDirectory() {
+    setPicking(true)
+    setPickerError(null)
+    try {
+      const path = await window.api.pickImportDirectory(targetDir || null)
+      if (path) setTargetDir(path)
+    } catch (error) {
+      setPickerError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setPicking(false)
+    }
+  }
+
+  return (
+    <Dialog
+      title="영상 가져오기"
+      description="YouTube 등의 영상 URL을 입력하고 저장할 폴더를 선택하세요."
+      onClose={() => { if (!busy && !picking) store.setDialog(null) }}
+      footer={<button className="primary" type="submit" form="import-video-form" disabled={busy || picking || !url.trim() || !targetDir}>
+        가져오기
+      </button>}
+    >
+      <form id="import-video-form" className="import-form" onSubmit={(event) => {
+        event.preventDefault()
+        setPickerError(null)
+        void store.importVideo(url, targetDir)
+      }}>
+        <label className="import-field">
+          <span>영상 URL</span>
+          <input type="url" required placeholder="https://www.youtube.com/watch?v=..." value={url}
+            onChange={(event) => setUrl(event.target.value)} disabled={busy} spellCheck={false}
+            aria-describedby={error ? 'import-video-error' : undefined} />
+        </label>
+        <div className="import-field">
+          <label htmlFor="import-target-directory">저장 폴더</label>
+          <div className="import-folder">
+            <input id="import-target-directory" readOnly value={targetDir} title={targetDir} placeholder="저장 폴더를 선택하세요" />
+            <button type="button" disabled={busy || picking} onClick={() => void chooseDirectory()}>
+              <FolderOpen size={16} aria-hidden="true" />폴더 선택
+            </button>
+          </div>
+        </div>
+        {error && <p id="import-video-error" className="import-error" role="alert">{error}</p>}
+      </form>
+      <p className="note">영상 한 개를 선택한 폴더에 저장하고 바로 엽니다. 재생목록 링크는 첫 번째 영상만 가져옵니다.</p>
+    </Dialog>
   )
 }
 
@@ -375,6 +436,7 @@ function SentenceBoundaryDialog() {
 
 export function Dialogs() {
   const dialog = useStore((state) => state.dialog)
+  if (dialog === 'import') return <ImportVideoDialog />
   if (dialog === 'stt') return <SttDialog />
   if (dialog === 'sentenceBoundary') return <SentenceBoundaryDialog />
   if (dialog === 'recut') return <RecutDialog />

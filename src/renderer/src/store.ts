@@ -24,6 +24,7 @@ import { DEFAULT_SETTINGS } from '../../shared/project'
 import { joinWords, segmentWords } from '../../shared/segment'
 import type { SentenceBoundaryOptions } from '../../shared/sentenceBoundary'
 import { serializeSrt } from '../../shared/srt'
+import { parseVideoUrl } from '../../shared/videoImport'
 import { pickFace } from '../../shared/fonts'
 import type { Clip, FontFace, MediaInfo, ProjectFile, ProjectSubtitle, SavedProject, Settings, Word } from '../../shared/types'
 import { captionFont, loadFonts } from './fonts'
@@ -35,7 +36,7 @@ const HISTORY_LIMIT = 100
 let restoringProject = false
 let savingProject = false
 
-export type DialogName = 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary'
+export type DialogName = 'import' | 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary'
 
 interface Job {
   label: string
@@ -62,6 +63,7 @@ interface State {
   mediaSession: number
   settings: Settings
   dialog: DialogName | null
+  importError: string | null
   job: Job | null
   message: string | null
   dragHint: DragHint | null
@@ -75,6 +77,7 @@ interface State {
   updateSettings(change: Partial<Settings>): void
 
   openMedia(): Promise<void>
+  importVideo(url: string, targetDir: string): Promise<boolean>
   openProject(): Promise<void>
   saveProject(saveAs?: boolean): Promise<void>
   closeWindow(): Promise<void>
@@ -228,6 +231,7 @@ export const useStore = create<State>((set, get) => {
     mediaSession: 0,
     settings: DEFAULT_SETTINGS,
     dialog: null,
+    importError: null,
     job: null,
     message: null,
     dragHint: null,
@@ -242,7 +246,7 @@ export const useStore = create<State>((set, get) => {
       })
     },
 
-    setDialog: (dialog) => set({ dialog }),
+    setDialog: (dialog) => set({ dialog, ...(dialog === 'import' ? { importError: null } : {}) }),
     setMessage: (message) => set({ message }),
     setDragHint: (dragHint) => set({ dragHint }),
     setFollow: (follow) => set({ follow }),
@@ -251,6 +255,55 @@ export const useStore = create<State>((set, get) => {
       const settings = { ...get().settings, ...change }
       set({ settings })
       void api.saveSettings(settings)
+    },
+
+    async importVideo(url, targetDir) {
+      if (get().job) return false
+      let normalized: string
+      try {
+        normalized = parseVideoUrl(url)
+        if (!targetDir.trim()) throw new Error('영상을 저장할 폴더를 선택해 주세요.')
+      } catch (error) {
+        set({ importError: errorText(error) })
+        return false
+      }
+      let cancelled = false
+      let downloading = true
+      let nativeStarted = false
+      const requestCancel = () => {
+        void api.cancelImportVideo().catch((error) => set({ importError: errorText(error) }))
+      }
+      const cancel = () => {
+        cancelled = true
+        set({ job: { label: '가져오기 취소 중', progress: null } })
+        if (nativeStarted) requestCancel()
+      }
+      const unsubscribe = api.onImportProgress((event) => {
+        nativeStarted = true
+        if (cancelled && downloading) requestCancel()
+        else if (downloading) set({ job: { ...event, cancel } })
+      })
+      set({ importError: null, job: { label: '영상 URL 확인 중', progress: null, cancel } })
+      try {
+        await flushAutosave()
+        if (cancelled) return false
+        const path = await api.importVideo(normalized, targetDir)
+        if (cancelled) return false
+        downloading = false
+        set({ job: { label: '가져온 영상 준비 중', progress: null } })
+        const media = await api.openMedia(path)
+        const project = await api.loadProject(path)
+        await flushAutosave()
+        await applyProject(media, project, null)
+        set({ message: `영상을 가져왔습니다: ${path}` })
+        return true
+      } catch (error) {
+        if (!cancelled) set({ importError: `영상 가져오기 실패: ${errorText(error)}` })
+        return false
+      } finally {
+        unsubscribe()
+        set({ job: null })
+      }
     },
 
     async openMedia() {

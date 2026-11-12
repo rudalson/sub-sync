@@ -51,6 +51,16 @@ pub fn atomic_write(target: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 #[cfg(windows)]
 fn atomic_replace(source: &Path, target: &Path) -> Result<(), String> {
+    // Replace only after the complete file has been flushed.
+    move_file(source, target, 0x1 | 0x8).map_err(|e| e.to_string())
+}
+/// Move within a folder without ever replacing another file, even if it appears concurrently.
+#[cfg(windows)]
+pub fn rename_no_replace(source: &Path, target: &Path) -> std::io::Result<()> {
+    move_file(source, target, 0x8)
+}
+#[cfg(windows)]
+fn move_file(source: &Path, target: &Path, flags: u32) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     #[link(name = "kernel32")]
     extern "system" {
@@ -58,15 +68,20 @@ fn atomic_replace(source: &Path, target: &Path) -> Result<(), String> {
     }
     let from: Vec<_> = source.as_os_str().encode_wide().chain(Some(0)).collect();
     let to: Vec<_> = target.as_os_str().encode_wide().chain(Some(0)).collect();
-    // Both NUL-terminated buffers outlive the call. Replace only after the complete file has been flushed.
-    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0x1 | 0x8) } == 0 {
-        return Err(std::io::Error::last_os_error().to_string());
+    // Both NUL-terminated buffers outlive the call.
+    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), flags) } == 0 {
+        return Err(std::io::Error::last_os_error());
     }
     Ok(())
 }
 #[cfg(not(windows))]
 fn atomic_replace(source: &Path, target: &Path) -> Result<(), String> {
     fs::rename(source, target).map_err(|e| e.to_string())
+}
+#[cfg(not(windows))]
+pub fn rename_no_replace(source: &Path, target: &Path) -> std::io::Result<()> {
+    fs::hard_link(source, target)?;
+    fs::remove_file(source)
 }
 
 pub fn ensure_different(source: &Path, target: &Path) -> Result<(), String> {

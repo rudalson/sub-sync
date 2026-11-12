@@ -33,6 +33,7 @@ pub struct Backend {
     pub writes: Mutex<()>,
     pub stt: Mutex<Option<Job>>,
     pub export: Mutex<Option<Job>>,
+    pub download: Mutex<Option<Job>>,
     pub shutdown: Arc<AtomicBool>,
     children: Mutex<HashSet<u32>>,
     /// Scanned once, on first use: reading every installed font takes a moment.
@@ -49,6 +50,7 @@ impl Backend {
             writes: Mutex::new(()),
             stt: Mutex::new(None),
             export: Mutex::new(None),
+            download: Mutex::new(None),
             shutdown: Arc::new(AtomicBool::new(false)),
             children: Mutex::new(HashSet::new()),
             fonts: std::sync::OnceLock::new(),
@@ -74,6 +76,7 @@ impl Backend {
         self.shutdown.store(true, Ordering::Relaxed);
         cancel(&self.stt);
         cancel(&self.export);
+        cancel(&self.download);
         for &pid in self.children.lock().unwrap().iter() {
             terminate(pid);
         }
@@ -95,12 +98,12 @@ impl Backend {
         }
     }
 }
-struct ChildRegistration<'a> {
+pub(crate) struct ChildRegistration<'a> {
     state: &'a Backend,
     pid: u32,
 }
 impl<'a> ChildRegistration<'a> {
-    fn new(state: &'a Backend, pid: u32) -> Self {
+    pub(crate) fn new(state: &'a Backend, pid: u32) -> Self {
         state.children.lock().unwrap().insert(pid);
         Self { state, pid }
     }
@@ -170,7 +173,7 @@ pub fn finish(slot: &Mutex<Option<Job>>, id: Uuid) {
         *current = None;
     }
 }
-fn wait(
+pub(crate) fn wait(
     child: &mut Child,
     cancel: &AtomicBool,
     shutdown: &AtomicBool,
@@ -481,7 +484,7 @@ fn backend_script(state: &Backend) -> PathBuf {
         state.resource_dir.join("backend/transcribe.py")
     }
 }
-fn python(state: &Backend) -> Result<PathBuf, String> {
+pub(crate) fn python(state: &Backend) -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("SUB_SYNC_PYTHON") {
         return Ok(path.into());
     }

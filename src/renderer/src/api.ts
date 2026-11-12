@@ -2,10 +2,11 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { validateProject } from '../../shared/project'
-import type { Api, MediaInfo, OpenedProject, SavedProject, SttEvent } from '../../shared/types'
+import type { Api, ImportProgress, MediaInfo, OpenedProject, SavedProject, SttEvent } from '../../shared/types'
 
 const sttListeners = new Set<(event: SttEvent) => void>()
 const progressListeners = new Set<(fraction: number) => void>()
+const importListeners = new Set<(event: ImportProgress) => void>()
 const closeListeners = new Set<() => void>()
 const subscribe = <T>(listeners: Set<T>, listener: T) => {
   listeners.add(listener)
@@ -15,6 +16,10 @@ const playable = (media: MediaInfo): MediaInfo => ({ ...media, url: convertFileS
 
 export const api: Api = {
   pickMedia: () => invoke('pick_media'),
+  pickImportDirectory: (initial) => invoke('pick_import_directory', { initial }),
+  importVideo: (url, targetDir) => invoke('import_video', { url, targetDir }),
+  cancelImportVideo: () => invoke('cancel_import_video'),
+  onImportProgress: (listener) => subscribe(importListeners, listener),
   openMedia: async (path) => playable(await invoke<MediaInfo>('open_media', { path })),
   loadPeaks: async (path) => {
     // Rust sends binary IPC, avoiding a large JSON array for long recordings.
@@ -57,6 +62,7 @@ export async function initializeNativeApi(): Promise<void> {
   await Promise.all([
     listen<SttEvent>('stt-event', ({ payload }) => sttListeners.forEach((listener) => listener(payload))),
     listen<number>('progress', ({ payload }) => progressListeners.forEach((listener) => listener(payload))),
+    listen<ImportProgress>('import-progress', ({ payload }) => importListeners.forEach((listener) => listener(payload))),
     getCurrentWindow().onCloseRequested((event) => {
       if (closeListeners.size === 0) return
       event.preventDefault()

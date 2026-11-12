@@ -1,6 +1,6 @@
 use crate::{
     backend::{self, Backend, PeakAccumulator},
-    files, fonts,
+    download, files, fonts,
     project::{self, SavedProject},
     stream,
 };
@@ -400,6 +400,170 @@ fn generated_video(dir: &TestDirectory, name: &str, codec: &str, container: &str
     );
     path
 }
+
+struct TestVideoServer {
+    url: String,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+impl TestVideoServer {
+    fn new(bytes: Vec<u8>) -> Self {
+        use std::{io::Read, net::TcpListener, time::Duration};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/video.mp4", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = stop.clone();
+        let thread = std::thread::spawn(move || {
+            while !flag.load(Ordering::Relaxed) {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_millis(500)))
+                    .unwrap();
+                stream
+                    .set_write_timeout(Some(Duration::from_millis(500)))
+                    .unwrap();
+                let mut request = [0; 8192];
+                let Ok(count) = stream.read(&mut request) else {
+                    continue;
+                };
+                let headers = format!("HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len());
+                if stream.write_all(headers.as_bytes()).is_ok()
+                    && !request[..count].starts_with(b"HEAD ")
+                {
+                    let _ = stream.write_all(&bytes);
+                }
+            }
+        });
+        Self {
+            url,
+            stop,
+            thread: Some(thread),
+        }
+    }
+}
+impl Drop for TestVideoServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        self.thread.take().unwrap().join().unwrap();
+    }
+}
+
+#[test]
+fn url_import_rejects_invalid_urls_and_missing_target_folders_before_starting() {
+    let dir = TestDirectory::new();
+    let state = Arc::new(Backend::new(dir.0.join("data"), dir.0.clone()).unwrap());
+    for url in [
+        "",
+        "hello",
+        "file:///C:/video.mp4",
+        "ftp://example.com/video.mp4",
+        "https://user:password@example.com/video.mp4",
+        "https://example.com/ video.mp4",
+    ] {
+        assert!(download::import_video(state.clone(), url, &dir.0, |_| {}).is_err());
+        assert!(state.download.lock().unwrap().is_none());
+    }
+    assert_eq!(
+        download::validate_url(" https://youtu.be/abc123?t=5 ").unwrap(),
+        "https://youtu.be/abc123?t=5"
+    );
+    assert!(download::import_video(
+        state.clone(),
+        "https://youtu.be/abc123",
+        &dir.0.join("missing"),
+        |_| {}
+    )
+    .unwrap_err()
+    .contains("저장 폴더"));
+    assert!(state.download.lock().unwrap().is_none());
+}
+
+#[test]
+fn real_url_import_downloads_to_the_selected_folder_and_opens_without_overwriting() {
+    let dir = TestDirectory::new();
+    let source = generated_video(&dir, "원본 영상.mp4", "libx264", "mp4");
+    let original = fs::read(&source).unwrap();
+    let server = TestVideoServer::new(original.clone());
+    let target = dir.0.join("저장 폴더");
+    fs::create_dir(&target).unwrap();
+    let state = Arc::new(Backend::new(dir.0.join("data"), dir.0.clone()).unwrap());
+    let updates = Arc::new(Mutex::new(Vec::new()));
+    let capture = updates.clone();
+    let path = download::import_video(state.clone(), &server.url, &target, move |event| {
+        capture.lock().unwrap().push(event)
+    })
+    .unwrap();
+    assert_eq!(PathBuf::from(&path).file_name().unwrap(), "video.mp4");
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert_eq!(
+        PathBuf::from(&path).parent(),
+        Some(target.canonicalize().unwrap().as_path())
+    );
+    assert!(state.require_media(PathBuf::from(&path).as_path()).is_ok());
+    assert!(state.download.lock().unwrap().is_none());
+    assert!(updates
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|event| event.progress.is_some()));
+    let media = backend::open_media(&state, None, PathBuf::from(&path).as_path()).unwrap();
+    assert_eq!((media.source.width, media.source.height), (160, 90));
+    let modified = fs::metadata(&path).unwrap().modified().unwrap();
+    assert_eq!(
+        download::import_video(state.clone(), &server.url, &target, |_| {}).unwrap(),
+        path
+    );
+    assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+    assert_eq!(fs::read(&source).unwrap(), original);
+    assert_eq!(fs::read_dir(&target).unwrap().count(), 1);
+}
+
+#[test]
+fn completed_download_names_remove_only_the_appended_video_id() {
+    let dir = TestDirectory::new();
+    for (original, expected) in [
+        (
+            "GitHub OSINT Tool [Hpa0WzE5M1Q].mp4",
+            "GitHub OSINT Tool.mp4",
+        ),
+        (
+            "[강의] 도구 [원문] [Hpa0WzE5M1Q].mkv",
+            "[강의] 도구 [원문].mkv",
+        ),
+        ("영상 [다른 ID].mp4", "영상 [다른 ID].mp4"),
+    ] {
+        let path = dir.0.join(original);
+        fs::write(&path, b"video").unwrap();
+        let completed = download::finalize_filename(&path, Some("Hpa0WzE5M1Q")).unwrap();
+        assert_eq!(completed, dir.0.join(expected));
+        assert_eq!(fs::read(&completed).unwrap(), b"video");
+        if original != expected {
+            assert!(!path.exists());
+        }
+    }
+}
+
+#[test]
+fn completed_download_names_preserve_different_videos_with_the_same_title() {
+    let dir = TestDirectory::new();
+    let source = dir.0.join("제목 [video-id].mp4");
+    let existing = dir.0.join("제목.mp4");
+    let numbered = dir.0.join("제목 (2).mp4");
+    fs::write(&source, b"new video").unwrap();
+    fs::write(&existing, b"old video").unwrap();
+    fs::create_dir(&numbered).unwrap();
+    let completed = download::finalize_filename(&source, Some("video-id")).unwrap();
+    assert_eq!(completed, dir.0.join("제목 (3).mp4"));
+    assert_eq!(fs::read(&completed).unwrap(), b"new video");
+    assert_eq!(fs::read(&existing).unwrap(), b"old video");
+    assert!(numbered.is_dir());
+    assert!(!source.exists());
+}
+
 #[test]
 fn real_media_open_waveform_cache_and_subtitle_export_work_together() {
     let dir = TestDirectory::new();

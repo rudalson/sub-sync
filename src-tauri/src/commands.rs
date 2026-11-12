@@ -1,6 +1,6 @@
 use crate::{
     backend::{self, Shared},
-    files,
+    download, files,
     project::{self, MediaInfo, ProjectFile, ProjectSubtitle, SavedProject, Settings, SttOptions},
 };
 use serde::Serialize;
@@ -8,7 +8,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use tauri::{AppHandle, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 async fn worker<T: Send + 'static>(
@@ -69,6 +69,52 @@ fn save(
 const VIDEO: &[&str] = &[
     "mp4", "mkv", "mov", "webm", "avi", "m4v", "wmv", "ts", "flv",
 ];
+#[tauri::command]
+pub async fn pick_import_directory(
+    window: WebviewWindow,
+    initial: Option<String>,
+) -> Result<Option<String>, String> {
+    worker(move || {
+        let mut picker = window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_title("영상을 저장할 폴더 선택");
+        if let Some(initial) = initial.filter(|path| Path::new(path).is_dir()) {
+            picker = picker.set_directory(initial);
+        } else if let Ok(downloads) = window.app_handle().path().download_dir() {
+            picker = picker.set_directory(downloads);
+        }
+        picker
+            .blocking_pick_folder()
+            .map(|path| {
+                path.into_path()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .map_err(|e| e.to_string())
+            })
+            .transpose()
+    })
+    .await
+}
+#[tauri::command]
+pub async fn import_video(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    url: String,
+    target_dir: String,
+) -> Result<String, String> {
+    let state = state.inner().clone();
+    worker(move || {
+        download::import_video(state, &url, Path::new(&target_dir), move |event| {
+            let _ = app.emit("import-progress", event);
+        })
+    })
+    .await
+}
+#[tauri::command]
+pub fn cancel_import_video(state: State<'_, Shared>) {
+    backend::cancel(&state.download);
+}
 #[tauri::command]
 pub async fn pick_media(
     window: WebviewWindow,
