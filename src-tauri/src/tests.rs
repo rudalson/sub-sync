@@ -163,6 +163,29 @@ fn projects_without_matching_subtitles_have_no_shortcuts() {
     );
 }
 #[test]
+fn the_double_clicked_project_is_taken_from_the_launch_arguments() {
+    let args = |list: &[&str]| {
+        list.iter()
+            .map(std::ffi::OsString::from)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        project::launch_argument(args(&["sub-sync.exe", "C:\\Projects\\편집.SubSync"])),
+        Some(PathBuf::from("C:\\Projects\\편집.SubSync"))
+    );
+    // The program itself is never the project, and other files are ignored.
+    assert_eq!(project::launch_argument(args(&["C:\\a.subsync"])), None);
+    assert_eq!(
+        project::launch_argument(args(&["sub-sync.exe", "C:\\Videos\\영상.mp4"])),
+        None
+    );
+    let relative = project::launch_argument(args(&["sub-sync.exe", "편집.subsync"])).unwrap();
+    assert_eq!(
+        relative,
+        std::env::current_dir().unwrap().join("편집.subsync")
+    );
+}
+#[test]
 fn saved_projects_always_end_with_the_subsync_extension() {
     for (typed, saved) in [
         ("C:\\Projects\\편집.subsync", "C:\\Projects\\편집.subsync"),

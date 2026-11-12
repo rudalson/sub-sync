@@ -9,12 +9,15 @@ mod stream;
 mod tests;
 mod translate;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
 
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(commands::LaunchProject(Mutex::new(
+            project::launch_argument(std::env::args_os()),
+        )))
         .setup(|app| {
             let state =
                 backend::Backend::new(app.path().app_data_dir()?, app.path().resource_dir()?)
@@ -57,6 +60,7 @@ pub fn run() {
             commands::confirm,
             commands::load_project,
             commands::pick_project,
+            commands::open_launch_project,
             commands::save_project,
             commands::autosave_project,
             commands::load_settings,

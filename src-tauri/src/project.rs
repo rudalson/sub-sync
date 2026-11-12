@@ -242,6 +242,15 @@ pub fn is_project_path(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case(EXTENSION))
 }
+/// The project file among the command-line arguments: Explorer passes the double-clicked file as the first one.
+/// A relative path (typed in a terminal) is resolved against the current folder before it is remembered.
+pub fn launch_argument(args: impl IntoIterator<Item = std::ffi::OsString>) -> Option<PathBuf> {
+    args.into_iter()
+        .skip(1)
+        .map(PathBuf::from)
+        .find(|path| is_project_path(path))
+        .map(|path| std::path::absolute(&path).unwrap_or(path))
+}
 /// A name typed in the save dialog without `.subsync` (or as `name.json`) still becomes a project file.
 pub fn with_extension(path: PathBuf) -> PathBuf {
     if is_project_path(&path) {

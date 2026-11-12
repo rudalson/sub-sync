@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 const api = {
   pickMedia: vi.fn(), openMedia: vi.fn(), loadPeaks: vi.fn(), loadProject: vi.fn(),
-  pickProject: vi.fn(), saveProject: vi.fn(), autosaveProject: vi.fn(),
+  pickProject: vi.fn(), openLaunchProject: vi.fn(), saveProject: vi.fn(), autosaveProject: vi.fn(),
   saveSettings: vi.fn(), loadSettings: vi.fn(), onProgress: vi.fn(),
   startStt: vi.fn(), onSttEvent: vi.fn(), saveSrt: vi.fn(), closeWindow: vi.fn(), confirm: vi.fn()
 }

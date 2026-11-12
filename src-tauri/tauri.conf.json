@@ -23,6 +23,7 @@
     "useLocalToolsDir": true,
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "targets": ["nsis"],
+    "fileAssociations": [{ "ext": ["subsync"], "name": "SubSync.Project", "description": "Sub Sync 프로젝트", "role": "Editor", "mimeType": "application/json" }],
     "resources": { "../backend/transcribe.py": "backend/transcribe.py", "../backend/sentence_boundary.py": "backend/sentence_boundary.py", "../backend/requirements.txt": "backend/requirements.txt" },
     "windows": { "webviewInstallMode": { "type": "downloadBootstrapper" } }
   }

@@ -14,6 +14,8 @@ const subscribe = <T>(listeners: Set<T>, listener: T) => {
   return () => { listeners.delete(listener) }
 }
 const playable = (media: MediaInfo): MediaInfo => ({ ...media, url: convertFileSrc(media.url, 'media') })
+const opened = (project: OpenedProject | null): OpenedProject | null =>
+  project ? { ...project, project: validateProject(project.project), media: playable(project.media) } : null
 
 export const api: Api = {
   pickMedia: () => invoke('pick_media'),
@@ -38,10 +40,8 @@ export const api: Api = {
     const project = await invoke<SavedProject | null>('load_project', { mediaPath })
     return project ? validateProject(project) : null
   },
-  pickProject: async () => {
-    const opened = await invoke<OpenedProject | null>('pick_project')
-    return opened ? { ...opened, project: validateProject(opened.project), media: playable(opened.media) } : null
-  },
+  pickProject: async () => opened(await invoke<OpenedProject | null>('pick_project')),
+  openLaunchProject: async () => opened(await invoke<OpenedProject | null>('open_launch_project')),
   saveProject: (project, path, defaultPath) => invoke('save_project', { project, path, defaultPath }),
   autosaveProject: (mediaPath, project) => invoke('autosave_project', { mediaPath, project }),
   loadSettings: () => invoke('load_settings'),

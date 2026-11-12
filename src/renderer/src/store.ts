@@ -27,7 +27,7 @@ import { serializeSrt } from '../../shared/srt'
 import { applyTranslations, glossaryTerms, translationCues, translationTarget } from '../../shared/translate'
 import { parseVideoUrl } from '../../shared/videoImport'
 import { pickFace } from '../../shared/fonts'
-import type { Clip, FontFace, MediaInfo, ProjectFile, ProjectSubtitle, SavedProject, Settings, TranslateCue, Word } from '../../shared/types'
+import type { Clip, FontFace, MediaInfo, OpenedProject, ProjectFile, ProjectSubtitle, SavedProject, Settings, TranslateCue, Word } from '../../shared/types'
 import { captionFont, loadFonts } from './fonts'
 import { restorePlayback, usePlayback } from './player'
 
@@ -186,6 +186,24 @@ export const useStore = create<State>((set, get) => {
     await refreshProjectSubtitles()
   }
 
+  /** Opens a project from the picker or from the launch arguments; both may ask for a moved video first. */
+  async function openProjectFrom(source: () => Promise<OpenedProject | null>) {
+    if (get().job) return
+    try {
+      await flushAutosave()
+      const opened = await source()
+      if (!opened) return
+      set({ job: { label: '프로젝트 불러오는 중', progress: null } })
+      try {
+        await applyProject(opened.media, opened.project, opened.path)
+      } finally {
+        set({ job: null })
+      }
+    } catch (error) {
+      set({ message: `프로젝트를 열 수 없습니다: ${errorText(error)}` })
+    }
+  }
+
   async function runTranscription() {
     const { media, settings, clips } = get()
     if (!media) return
@@ -263,6 +281,8 @@ export const useStore = create<State>((set, get) => {
         const job = get().job
         if (job) set({ job: { ...job, progress } })
       })
+      // A project double-clicked in Explorer starts the app with its path; open it like Ctrl+O would.
+      await openProjectFrom(api.openLaunchProject)
     },
 
     setDialog: (dialog) => set({ dialog, ...(dialog === 'import' ? { importError: null } : {}) }),
@@ -344,22 +364,7 @@ export const useStore = create<State>((set, get) => {
       }
     },
 
-    async openProject() {
-      if (get().job) return
-      try {
-        await flushAutosave()
-        const opened = await api.pickProject()
-        if (!opened) return
-        set({ job: { label: '프로젝트 불러오는 중', progress: null } })
-        try {
-          await applyProject(opened.media, opened.project, opened.path)
-        } finally {
-          set({ job: null })
-        }
-      } catch (error) {
-        set({ message: `프로젝트를 열 수 없습니다: ${errorText(error)}` })
-      }
-    },
+    openProject: () => openProjectFrom(api.pickProject),
 
     async saveProject(saveAs = false) {
       const state = get()

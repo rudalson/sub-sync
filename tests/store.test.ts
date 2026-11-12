@@ -4,7 +4,7 @@ import { makeProject, media } from './fixtures/project'
 
 const api = {
   pickMedia: vi.fn(), openMedia: vi.fn(), loadPeaks: vi.fn(), loadProject: vi.fn(),
-  pickProject: vi.fn(), saveProject: vi.fn(), autosaveProject: vi.fn(),
+  pickProject: vi.fn(), openLaunchProject: vi.fn(), saveProject: vi.fn(), autosaveProject: vi.fn(),
   listProjectSubtitles: vi.fn(), readProjectSrt: vi.fn(), pickSrt: vi.fn(),
   importVideo: vi.fn(), cancelImportVideo: vi.fn(), onImportProgress: vi.fn(),
   startAgentTranslate: vi.fn(), cancelAgentTranslate: vi.fn(), onTranslateProgress: vi.fn(),
@@ -230,6 +230,33 @@ describe('project editing session', () => {
     expect(useStore.getState().projectDirty).toBe(true)
     useStore.getState().undo()
     expect(useStore.getState().clips).toEqual(project.clips)
+  })
+
+  it('opens the project the app was launched with once the settings are loaded', async () => {
+    const project = makeProject()
+    api.openLaunchProject.mockResolvedValue({ path: 'C:\\Projects\\편집.subsync', media, project })
+    await useStore.getState().init()
+
+    const state = useStore.getState()
+    expect(api.loadSettings).toHaveBeenCalledBefore(api.openLaunchProject)
+    expect(api.pickProject).not.toHaveBeenCalled()
+    expect(state.media).toEqual(media)
+    expect(state.projectPath).toBe('C:\\Projects\\편집.subsync')
+    expect(state.clips).toEqual(project.clips)
+    expect(state.settings).toEqual(project.settings)
+    expect(state.job).toBeNull()
+  })
+
+  it('starts empty without a launch project and reports a launch project that cannot be opened', async () => {
+    api.openLaunchProject.mockResolvedValue(null)
+    await useStore.getState().init()
+    expect(useStore.getState().media).toBeNull()
+    expect(useStore.getState().message).toBeNull()
+
+    api.openLaunchProject.mockRejectedValue(new Error('프로젝트 파일이 손상되었습니다.'))
+    await useStore.getState().init()
+    expect(useStore.getState().media).toBeNull()
+    expect(useStore.getState().message).toBe('프로젝트를 열 수 없습니다: 프로젝트 파일이 손상되었습니다.')
   })
 
   it('restores a version 1 autosave and creates the missing waveform without rerunning STT', async () => {

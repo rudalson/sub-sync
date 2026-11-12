@@ -171,6 +171,8 @@ export interface Api {
   confirm(message: string, detail?: string): Promise<boolean>
   loadProject(mediaPath: string): Promise<SavedProject | null>
   pickProject(): Promise<OpenedProject | null>
+  /** The `.subsync` file the app was launched with (double-clicked in Explorer), handed over only once. */
+  openLaunchProject(): Promise<OpenedProject | null>
   saveProject(project: ProjectFile, path: string | null, defaultPath: string): Promise<string | null>
   autosaveProject(mediaPath: string, project: ProjectFile): Promise<void>
   onCloseRequested(listener: () => void): () => void

@@ -7,6 +7,7 @@ use serde::Serialize;
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -291,6 +292,47 @@ pub struct OpenedProject {
     project: SavedProject,
     media: MediaInfo,
 }
+/// Opens a project file and the video it belongs to, asking for the video only when it has moved.
+fn open_project_file(
+    window: &WebviewWindow,
+    app: &AppHandle,
+    state: &Shared,
+    path: PathBuf,
+) -> Result<Option<OpenedProject>, String> {
+    if !project::is_project_path(&path) {
+        return Err("Sub Sync 프로젝트(.subsync) 파일만 열 수 있습니다.".into());
+    }
+    let project = {
+        let _lock = state.writes.lock().unwrap();
+        project::read(&path)?
+    };
+    let media_path = if let Some(path) = project::find_media(&path, &project) {
+        path
+    } else {
+        let Some(path) = pick(
+            window,
+            "원본 영상을 찾을 수 없습니다. 영상을 다시 연결해 주세요.",
+            "영상",
+            VIDEO,
+            project.original_path().map(Path::new),
+        )?
+        else {
+            return Ok(None);
+        };
+        path
+    };
+    if fs::metadata(&media_path).map_err(|e| e.to_string())?.len() != project.size() {
+        return Err("저장된 프로젝트와 영상 크기가 다릅니다. 원본 영상을 선택해 주세요.".into());
+    }
+    let media = backend::open_media(state, Some(app), &media_path)?;
+    project.validate_media(&media)?;
+    state.allow(&path)?;
+    Ok(Some(OpenedProject {
+        path: path.to_string_lossy().into_owned(),
+        project,
+        media,
+    }))
+}
 #[tauri::command]
 pub async fn pick_project(
     window: WebviewWindow,
@@ -309,43 +351,25 @@ pub async fn pick_project(
         else {
             return Ok(None);
         };
-        if !project::is_project_path(&path) {
-            return Err("Sub Sync 프로젝트(.subsync) 파일만 열 수 있습니다.".into());
-        }
-        let project = {
-            let _lock = state.writes.lock().unwrap();
-            project::read(&path)?
-        };
-        let media_path = if let Some(path) = project::find_media(&path, &project) {
-            path
-        } else {
-            let Some(path) = pick(
-                &window,
-                "원본 영상을 찾을 수 없습니다. 영상을 다시 연결해 주세요.",
-                "영상",
-                VIDEO,
-                project.original_path().map(Path::new),
-            )?
-            else {
-                return Ok(None);
-            };
-            path
-        };
-        if fs::metadata(&media_path).map_err(|e| e.to_string())?.len() != project.size() {
-            return Err(
-                "저장된 프로젝트와 영상 크기가 다릅니다. 원본 영상을 선택해 주세요.".into(),
-            );
-        }
-        let media = backend::open_media(&state, Some(&app), &media_path)?;
-        project.validate_media(&media)?;
-        state.allow(&path)?;
-        Ok(Some(OpenedProject {
-            path: path.to_string_lossy().into_owned(),
-            project,
-            media,
-        }))
+        open_project_file(&window, &app, &state, path)
     })
     .await
+}
+/// The `.subsync` file the app was started with (a double-click in Explorer), until the editor opens it.
+pub struct LaunchProject(pub Mutex<Option<PathBuf>>);
+/// Hands the launch project to the editor once; later calls (a reloaded page) find nothing.
+#[tauri::command]
+pub async fn open_launch_project(
+    window: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, Shared>,
+    launch: State<'_, LaunchProject>,
+) -> Result<Option<OpenedProject>, String> {
+    let Some(path) = launch.0.lock().unwrap().take() else {
+        return Ok(None);
+    };
+    let state = state.inner().clone();
+    worker(move || open_project_file(&window, &app, &state, path)).await
 }
 #[tauri::command]
 pub async fn save_project(
