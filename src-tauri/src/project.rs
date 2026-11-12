@@ -263,6 +263,72 @@ pub fn autosave_path(media: &str) -> PathBuf {
         PathBuf::from(format!("{media}.{EXTENSION}"))
     }
 }
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectSubtitle {
+    pub path: String,
+    pub language: Option<String>,
+}
+
+/// Only sibling SRTs named `project.srt` or `project.<language>.srt` belong to this project.
+pub fn subtitles(path: &Path) -> Result<Vec<ProjectSubtitle>, String> {
+    let Some(stem) = path.file_stem().and_then(|name| name.to_str()) else {
+        return Ok(Vec::new());
+    };
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut subtitles = Vec::new();
+    for entry in fs::read_dir(parent).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let candidate = entry.path();
+        if !entry.file_type().map_err(|e| e.to_string())?.is_file()
+            || !candidate
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("srt"))
+        {
+            continue;
+        }
+        let Some(name) = candidate.file_stem().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name
+            .get(..stem.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(stem))
+        {
+            continue;
+        }
+        let suffix = &name[stem.len()..];
+        let language = if suffix.is_empty() {
+            None
+        } else {
+            let Some(tag) = suffix.strip_prefix('.') else {
+                continue;
+            };
+            let tag = tag.replace('_', "-").to_ascii_lowercase();
+            let mut parts = tag.split('-');
+            let language = parts.next().unwrap_or_default();
+            if !(2..=3).contains(&language.len())
+                || !language.bytes().all(|byte| byte.is_ascii_alphabetic())
+                || !parts.all(|part| {
+                    (2..=8).contains(&part.len())
+                        && part.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                })
+            {
+                continue;
+            }
+            Some(tag)
+        };
+        subtitles.push(ProjectSubtitle {
+            path: candidate.to_string_lossy().into_owned(),
+            language,
+        });
+    }
+    subtitles.sort_by(|a, b| a.language.cmp(&b.language).then(a.path.cmp(&b.path)));
+    Ok(subtitles)
+}
+
 fn relative_path(target: &Path, base: &Path) -> Option<PathBuf> {
     let target: Vec<_> = target.components().collect();
     let base: Vec<_> = base.components().collect();

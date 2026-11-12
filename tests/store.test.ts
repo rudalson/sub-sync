@@ -5,6 +5,7 @@ import { makeProject, media } from './fixtures/project'
 const api = {
   pickMedia: vi.fn(), openMedia: vi.fn(), loadPeaks: vi.fn(), loadProject: vi.fn(),
   pickProject: vi.fn(), saveProject: vi.fn(), autosaveProject: vi.fn(),
+  listProjectSubtitles: vi.fn(), readProjectSrt: vi.fn(), pickSrt: vi.fn(),
   saveSettings: vi.fn(), loadSettings: vi.fn(), onProgress: vi.fn(),
   startStt: vi.fn(), onSttEvent: vi.fn(), saveSrt: vi.fn(), closeWindow: vi.fn(), confirm: vi.fn()
 }
@@ -28,6 +29,7 @@ beforeEach(() => {
   api.pickMedia.mockResolvedValue(media.path)
   api.openMedia.mockResolvedValue(media)
   api.loadProject.mockResolvedValue(null)
+  api.listProjectSubtitles.mockResolvedValue([])
   api.loadPeaks.mockResolvedValue(Uint8Array.from(makeProject().waveform!.peaks))
   api.autosaveProject.mockResolvedValue(undefined)
   api.saveProject.mockResolvedValue('C:\\Projects\\편집.subsync')
@@ -137,6 +139,112 @@ describe('project editing session', () => {
     expect(useStore.getState().peaks).toEqual(Uint8Array.from(makeProject().waveform!.peaks))
     expect(api.loadPeaks).toHaveBeenCalledExactlyOnceWith(media.path)
     expect(api.startStt).not.toHaveBeenCalled()
+  })
+
+  it('discovers subtitles beside the named project and clears them when opening another video', async () => {
+    const path = 'C:\\Projects\\편집.subsync'
+    const subtitles = [
+      { path: 'C:\\Projects\\편집.en.srt', language: 'en' },
+      { path: 'C:\\Projects\\편집.ko.srt', language: 'ko' }
+    ]
+    api.pickProject.mockResolvedValue({ path, media, project: makeProject() })
+    api.listProjectSubtitles.mockResolvedValue(subtitles)
+    await useStore.getState().openProject()
+    expect(api.listProjectSubtitles).toHaveBeenCalledExactlyOnceWith(path)
+    expect(useStore.getState().projectSubtitles).toEqual(subtitles)
+    expect(useStore.getState().projectDirty).toBe(false)
+
+    api.listProjectSubtitles.mockResolvedValue([])
+    await useStore.getState().openMedia()
+    expect(api.listProjectSubtitles).toHaveBeenLastCalledWith(media.path)
+    expect(useStore.getState().projectSubtitles).toEqual([])
+  })
+
+  it('keeps the project usable when companion subtitle discovery fails', async () => {
+    api.listProjectSubtitles.mockRejectedValue(new Error('폴더를 읽을 수 없습니다.'))
+    api.pickProject.mockResolvedValue({ path: 'C:\\Projects\\편집.subsync', media, project: makeProject() })
+    await useStore.getState().openProject()
+    expect(useStore.getState().clips).toEqual(makeProject().clips)
+    expect(useStore.getState().projectSubtitles).toEqual([])
+    expect(useStore.getState().job).toBeNull()
+  })
+
+  it('loads a companion SRT directly, preserves speech anchors, and supports undo and saving', async () => {
+    const project = makeProject()
+    const projectPath = 'C:\\Projects\\편집.subsync'
+    const subtitlePath = 'C:\\Projects\\편집.ko.srt'
+    api.pickProject.mockResolvedValue({ path: projectPath, media, project })
+    await useStore.getState().openProject()
+    api.readProjectSrt.mockResolvedValue({
+      path: subtitlePath,
+      content: '1\n00:00:01,125 --> 00:00:03,875\n안녕하세요\n'
+    })
+    await useStore.getState().loadSrt(subtitlePath)
+    const state = useStore.getState()
+    expect(api.readProjectSrt).toHaveBeenCalledExactlyOnceWith(projectPath, subtitlePath)
+    expect(api.pickSrt).not.toHaveBeenCalled()
+    expect(state.clips).toMatchObject([{ start: 1.125, end: 3.875, text: '안녕하세요', words: project.clips[0].words }])
+    expect(state.srtPath).toBe(subtitlePath)
+    expect(state.projectDirty).toBe(true)
+    expect(state.job).toBeNull()
+
+    api.saveSrt.mockResolvedValue(subtitlePath)
+    await useStore.getState().saveSrt()
+    expect(api.saveSrt).toHaveBeenCalledWith(expect.stringContaining('안녕하세요'), subtitlePath, subtitlePath)
+    useStore.getState().undo()
+    expect(useStore.getState().clips).toEqual(project.clips)
+    useStore.getState().redo()
+    expect(useStore.getState().clips[0].text).toBe('안녕하세요')
+  })
+
+  it('keeps the original SRT picker and loads its selection as one undo step', async () => {
+    await useStore.getState().openMedia()
+    api.pickSrt.mockResolvedValue({ path: 'C:\\Other\\번역.srt', content: '1\n00:00:01,000 --> 00:00:02,000\n선택한 자막\n' })
+    await useStore.getState().loadSrt()
+    expect(api.pickSrt).toHaveBeenCalledOnce()
+    expect(api.readProjectSrt).not.toHaveBeenCalled()
+    expect(useStore.getState().clips[0].text).toBe('선택한 자막')
+    useStore.getState().undo()
+    expect(useStore.getState().clips).toEqual([])
+  })
+
+  it('keeps current edits and removes a stale shortcut when its SRT was deleted', async () => {
+    const project = makeProject()
+    api.pickProject.mockResolvedValue({ path: 'C:\\Projects\\편집.subsync', media, project })
+    api.listProjectSubtitles.mockResolvedValue([{ path: 'C:\\Projects\\편집.ko.srt', language: 'ko' }])
+    await useStore.getState().openProject()
+    api.readProjectSrt.mockRejectedValue(new Error('프로젝트 폴더에서 해당 자막을 찾을 수 없습니다.'))
+    api.listProjectSubtitles.mockResolvedValue([])
+    await useStore.getState().loadSrt('C:\\Projects\\편집.ko.srt')
+    expect(useStore.getState().clips).toBe(project.clips)
+    expect(useStore.getState().srtPath).toBe(project.srtPath)
+    expect(useStore.getState().past).toEqual([])
+    expect(useStore.getState().projectSubtitles).toEqual([])
+    expect(useStore.getState().message).toContain('자막을 찾을 수 없습니다')
+    expect(useStore.getState().job).toBeNull()
+  })
+
+  it('rejects empty SRTs without replacing existing subtitles', async () => {
+    const project = makeProject()
+    api.pickProject.mockResolvedValue({ path: 'C:\\Projects\\편집.subsync', media, project })
+    await useStore.getState().openProject()
+    api.readProjectSrt.mockResolvedValue({ path: 'C:\\Projects\\편집.ko.srt', content: '' })
+    await useStore.getState().loadSrt('C:\\Projects\\편집.ko.srt')
+    expect(useStore.getState().clips).toBe(project.clips)
+    expect(useStore.getState().srtPath).toBe(project.srtPath)
+    expect(useStore.getState().past).toEqual([])
+    expect(useStore.getState().message).toContain('SRT에서 자막을 찾지 못했습니다')
+    expect(useStore.getState().job).toBeNull()
+  })
+
+  it('refreshes companion buttons after saving the project into another folder', async () => {
+    await useStore.getState().openMedia()
+    const subtitles = [{ path: 'C:\\Projects\\편집.en.srt', language: 'en' }]
+    api.listProjectSubtitles.mockResolvedValue(subtitles)
+    await useStore.getState().saveProject(true)
+    expect(api.listProjectSubtitles).toHaveBeenLastCalledWith('C:\\Projects\\편집.subsync')
+    expect(useStore.getState().projectSubtitles).toEqual(subtitles)
+    expect(useStore.getState().projectDirty).toBe(false)
   })
 
   it('restores a version 2 autosave directly when the video is opened', async () => {

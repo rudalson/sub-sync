@@ -1,6 +1,15 @@
 import { BookOpen, Captions, Combine, FileUp, FileVideo2, FolderOpen, Redo2, Scissors, Undo2, Upload } from 'lucide-react'
+import englishFlag from '../assets/flags/us.svg'
+import koreanFlag from '../assets/flags/kr.svg'
 import { useStore } from '../store'
 import { SaveControl } from './SaveControl'
+
+const subtitleLanguages: Record<string, { label: string; flag: string }> = {
+  en: { label: '영어', flag: englishFlag },
+  eng: { label: '영어', flag: englishFlag },
+  ko: { label: '한국어', flag: koreanFlag },
+  kor: { label: '한국어', flag: koreanFlag }
+}
 
 export function Toolbar() {
   const media = useStore((state) => state.media)
@@ -9,6 +18,8 @@ export function Toolbar() {
   const hasClips = useStore((state) => state.clips.length > 0)
   const canUndo = useStore((state) => state.past.length > 0)
   const canRedo = useStore((state) => state.future.length > 0)
+  const projectSubtitles = useStore((state) => state.projectSubtitles)
+  const busy = useStore((state) => state.job !== null)
   const name = (projectPath ?? media?.path)?.split(/[\\/]/).pop() ?? '새 프로젝트'
   // Before a video is open the empty state already says how to start; the header does not repeat it.
   const status = !media ? null
@@ -62,9 +73,32 @@ export function Toolbar() {
           </button>
         </div>
         <div className="command-group secondary-tools">
-          <button className="quiet" onClick={() => void useStore.getState().loadSrt()}>
+          <button className="quiet" disabled={busy} onClick={() => void useStore.getState().loadSrt()}>
             <FileUp size={16} aria-hidden="true" />SRT 불러오기
           </button>
+          {media && projectSubtitles.length > 0 && (
+            <div className="project-subtitles" role="group" aria-label="프로젝트 폴더의 자막">
+              {projectSubtitles.map((subtitle) => {
+                const language = subtitleLanguages[subtitle.language?.split('-')[0] ?? '']
+                const label = language?.label ?? subtitle.language?.toUpperCase() ?? '기본'
+                const filename = subtitle.path.split(/[\\/]/).pop()
+                return (
+                  <button
+                    key={subtitle.path}
+                    className="quiet project-subtitle-button"
+                    disabled={busy}
+                    title={`${label} 자막 불러오기\n${subtitle.path}`}
+                    aria-label={`${label} 자막 불러오기 (${filename})`}
+                    onClick={() => void useStore.getState().loadSrt(subtitle.path)}
+                  >
+                    {language
+                      ? <img className="subtitle-flag" src={language.flag} width={24} height={16} alt="" aria-hidden="true" />
+                      : <span className="subtitle-language" aria-hidden="true">{subtitle.language?.toUpperCase() ?? 'SRT'}</span>}
+                  </button>
+                )
+              })}
+            </div>
+          )}
           <SaveControl
             label="SRT 저장" disabled={!hasClips} shortcut="Ctrl+Alt+S"
             saveAsLabel="SRT 다른 이름으로" saveAsShortcut="Ctrl+Alt+Shift+S"

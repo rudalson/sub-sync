@@ -1,7 +1,7 @@
 use crate::{
     backend::{self, Shared},
     files,
-    project::{self, MediaInfo, ProjectFile, SavedProject, Settings, SttOptions},
+    project::{self, MediaInfo, ProjectFile, ProjectSubtitle, SavedProject, Settings, SttOptions},
 };
 use serde::Serialize;
 use std::{
@@ -112,16 +112,53 @@ pub struct SrtFile {
     path: String,
     content: String,
 }
+fn read_srt_file(path: &Path) -> Result<SrtFile, String> {
+    Ok(SrtFile {
+        content: files::decode_subtitle(&fs::read(path).map_err(|e| e.to_string())?)?,
+        path: path.to_string_lossy().into_owned(),
+    })
+}
 #[tauri::command]
 pub async fn pick_srt(window: WebviewWindow) -> Result<Option<SrtFile>, String> {
     worker(move || {
         let Some(path) = pick(&window, "SRT 불러오기", "SRT 자막", &["srt"], None)? else {
             return Ok(None);
         };
-        Ok(Some(SrtFile {
-            content: files::decode_subtitle(&fs::read(&path).map_err(|e| e.to_string())?)?,
-            path: path.to_string_lossy().into_owned(),
-        }))
+        read_srt_file(&path).map(Some)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn list_project_subtitles(
+    project_path: String,
+    state: State<'_, Shared>,
+) -> Result<Vec<ProjectSubtitle>, String> {
+    let state = state.inner().clone();
+    worker(move || {
+        let path = Path::new(&project_path);
+        state.require_media(path)?;
+        project::subtitles(path)
+    })
+    .await
+}
+#[tauri::command]
+pub async fn read_project_srt(
+    project_path: String,
+    path: String,
+    state: State<'_, Shared>,
+) -> Result<SrtFile, String> {
+    let state = state.inner().clone();
+    worker(move || {
+        let project_path = Path::new(&project_path);
+        state.require_media(project_path)?;
+        // Recheck on click: arbitrary paths and subtitles removed since discovery are never read.
+        if !project::subtitles(project_path)?
+            .iter()
+            .any(|subtitle| Path::new(&subtitle.path) == Path::new(&path))
+        {
+            return Err("프로젝트 폴더에서 해당 자막을 찾을 수 없습니다.".into());
+        }
+        read_srt_file(Path::new(&path))
     })
     .await
 }
@@ -255,6 +292,7 @@ pub async fn pick_project(
         }
         let media = backend::open_media(&state, Some(&app), &media_path)?;
         project.validate_media(&media)?;
+        state.allow(&path)?;
         Ok(Some(OpenedProject {
             path: path.to_string_lossy().into_owned(),
             project,
@@ -288,6 +326,7 @@ pub async fn save_project(
         if let Some(path) = &target {
             let _lock = state.writes.lock().unwrap();
             project::write(path, &project)?;
+            state.allow(path)?;
         }
         Ok(target.map(|p| p.to_string_lossy().into_owned()))
     })

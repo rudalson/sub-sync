@@ -123,11 +123,18 @@ export interface SrtFile {
   content: string
 }
 
+export interface ProjectSubtitle {
+  path: string
+  language: string | null
+}
+
 export interface Api {
   pickMedia(): Promise<string | null>
   openMedia(path: string): Promise<MediaInfo>
   loadPeaks(path: string): Promise<Uint8Array | null>
   pickSrt(): Promise<SrtFile | null>
+  listProjectSubtitles(projectPath: string): Promise<ProjectSubtitle[]>
+  readProjectSrt(projectPath: string, path: string): Promise<SrtFile>
   saveSrt(content: string, path: string | null, defaultPath: string): Promise<string | null>
   pickExportPath(defaultPath: string): Promise<string | null>
   confirm(message: string, detail?: string): Promise<boolean>

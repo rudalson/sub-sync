@@ -110,6 +110,59 @@ fn autosave_path_strips_media_extension() {
     );
 }
 #[test]
+fn companion_subtitles_match_the_project_name_and_language_in_its_own_folder() {
+    let dir = TestDirectory::new();
+    let stem = "메모리 AI Agent.Architecture";
+    let project_path = dir.0.join(format!("{stem}.subsync"));
+    for suffix in [
+        ".srt",
+        ".en.srt",
+        ".ko.srt",
+        ".EN_us.SRT",
+        ".zh-Hant.srt",
+        "-other.ko.srt",
+        ".backup.srt",
+        ".en.backup.srt",
+        ".e.srt",
+        ".en.srt.bak",
+        ".en.mp4",
+    ] {
+        fs::write(dir.0.join(format!("{stem}{suffix}")), b"subtitle").unwrap();
+    }
+    fs::create_dir(dir.0.join(format!("{stem}.ja.srt"))).unwrap();
+    let other_folder = dir.0.join("video");
+    fs::create_dir(&other_folder).unwrap();
+    fs::write(other_folder.join(format!("{stem}.fr.srt")), b"other folder").unwrap();
+
+    let subtitles = project::subtitles(&project_path).unwrap();
+    assert_eq!(
+        subtitles
+            .iter()
+            .map(|subtitle| subtitle.language.as_deref())
+            .collect::<Vec<_>>(),
+        vec![None, Some("en"), Some("en-us"), Some("ko"), Some("zh-hant")]
+    );
+    assert!(subtitles
+        .iter()
+        .all(|subtitle| PathBuf::from(&subtitle.path).parent() == Some(dir.0.as_path())));
+}
+#[test]
+fn projects_without_matching_subtitles_have_no_shortcuts() {
+    let dir = TestDirectory::new();
+    let path = dir.0.join("video.subsync");
+    assert!(project::subtitles(&path).unwrap().is_empty());
+    fs::write(dir.0.join("another-video.en.srt"), b"unrelated").unwrap();
+    assert!(project::subtitles(&path).unwrap().is_empty());
+    fs::write(dir.0.join("VIDEO.EN.SRT"), b"matching").unwrap();
+    let subtitles = project::subtitles(&path).unwrap();
+    assert_eq!(subtitles.len(), 1);
+    assert_eq!(subtitles[0].language.as_deref(), Some("en"));
+    assert_eq!(
+        project::subtitles(&dir.0.join("video.mp4")).unwrap()[0].path,
+        subtitles[0].path
+    );
+}
+#[test]
 fn saved_projects_always_end_with_the_subsync_extension() {
     for (typed, saved) in [
         ("C:\\Projects\\편집.subsync", "C:\\Projects\\편집.subsync"),

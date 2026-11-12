@@ -45,6 +45,8 @@ pub fn run() {
             commands::open_media,
             commands::load_peaks,
             commands::pick_srt,
+            commands::list_project_subtitles,
+            commands::read_project_srt,
             commands::save_srt,
             commands::pick_export_path,
             commands::confirm,

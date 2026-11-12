@@ -23,6 +23,8 @@ export const api: Api = {
     return peaks.length ? peaks : null
   },
   pickSrt: () => invoke('pick_srt'),
+  listProjectSubtitles: (projectPath) => invoke('list_project_subtitles', { projectPath }),
+  readProjectSrt: (projectPath, path) => invoke('read_project_srt', { projectPath, path }),
   saveSrt: (content, path, defaultPath) => invoke('save_srt', { content, path, defaultPath }),
   pickExportPath: (defaultPath) => invoke('pick_export_path', { defaultPath }),
   confirm: (message, detail) => invoke('confirm', { message, detail: detail ?? null }),

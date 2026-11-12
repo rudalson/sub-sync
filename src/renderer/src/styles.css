@@ -130,7 +130,11 @@ kbd {
 .save-menu-content kbd { background: none; box-shadow: none; padding: 0; }
 .command-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 4px 20px; background: var(--canvas); box-shadow: inset 0 -1px 0 var(--line); }
 .command-bar button { color: var(--text-strong); }
-.secondary-tools { gap: 4px; }
+.secondary-tools { gap: 4px; flex-wrap: wrap; }
+.project-subtitles { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.toolbar .project-subtitle-button { min-width: 36px; padding-inline: 6px; }
+.subtitle-flag { display: block; object-fit: contain; border-radius: 2px; }
+.subtitle-language { font: 600 11px/1 var(--mono); }
 .secondary-tools .save-control > button, .secondary-tools .save-menu summary { background: transparent; box-shadow: none; }
 .secondary-tools .save-menu summary:hover { background: var(--ink-2); }
 

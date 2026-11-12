@@ -25,7 +25,7 @@ import { joinWords, segmentWords } from '../../shared/segment'
 import type { SentenceBoundaryOptions } from '../../shared/sentenceBoundary'
 import { serializeSrt } from '../../shared/srt'
 import { pickFace } from '../../shared/fonts'
-import type { Clip, FontFace, MediaInfo, ProjectFile, SavedProject, Settings, Word } from '../../shared/types'
+import type { Clip, FontFace, MediaInfo, ProjectFile, ProjectSubtitle, SavedProject, Settings, Word } from '../../shared/types'
 import { captionFont, loadFonts } from './fonts'
 import { restorePlayback, usePlayback } from './player'
 
@@ -57,6 +57,7 @@ interface State {
   future: Clip[][]
   srtPath: string | null
   projectPath: string | null
+  projectSubtitles: ProjectSubtitle[]
   projectDirty: boolean
   mediaSession: number
   settings: Settings
@@ -77,7 +78,7 @@ interface State {
   openProject(): Promise<void>
   saveProject(saveAs?: boolean): Promise<void>
   closeWindow(): Promise<void>
-  loadSrt(): Promise<void>
+  loadSrt(path?: string): Promise<void>
   saveSrt(saveAs?: boolean): Promise<void>
   transcribe(): Promise<void>
   recut(): Promise<void>
@@ -114,6 +115,22 @@ export const useStore = create<State>((set, get) => {
   const commit = (clips: Clip[]) =>
     set((state) => ({ clips, past: [...state.past, state.clips].slice(-HISTORY_LIMIT), future: [] }))
 
+  async function refreshProjectSubtitles() {
+    const { media, projectPath, mediaSession } = get()
+    if (!media) return
+    const anchor = projectPath ?? media.path
+    let projectSubtitles: ProjectSubtitle[] = []
+    try {
+      projectSubtitles = await api.listProjectSubtitles(anchor)
+    } catch {
+      // Companion discovery must not prevent editing when the folder is unavailable.
+    }
+    const current = get()
+    if (current.mediaSession === mediaSession && (current.projectPath ?? current.media?.path) === anchor) {
+      set({ projectSubtitles })
+    }
+  }
+
   async function applyProject(media: MediaInfo, project: SavedProject | null, projectPath: string | null) {
     const full = project?.version === 2 ? project : null
     if (full && (Math.abs(full.media.duration - media.duration) > 0.1 || full.media.width !== media.width || full.media.height !== media.height)) {
@@ -132,6 +149,7 @@ export const useStore = create<State>((set, get) => {
         future: [],
         srtPath: full?.srtPath ?? null,
         projectPath,
+        projectSubtitles: [],
         projectDirty: !projectPath || !full || full.media.path !== media.path || (!full.waveform && peaks !== null),
         mediaSession: get().mediaSession + 1,
         settings: full ? mergeSettings(full.settings) : get().settings,
@@ -143,6 +161,7 @@ export const useStore = create<State>((set, get) => {
     } finally {
       restoringProject = false
     }
+    await refreshProjectSubtitles()
   }
 
   async function runTranscription() {
@@ -204,6 +223,7 @@ export const useStore = create<State>((set, get) => {
     future: [],
     srtPath: null,
     projectPath: null,
+    projectSubtitles: [],
     projectDirty: false,
     mediaSession: 0,
     settings: DEFAULT_SETTINGS,
@@ -297,6 +317,7 @@ export const useStore = create<State>((set, get) => {
             projectDirty: dirty,
             message: `프로젝트를 저장했습니다: ${path}`
           })
+          await refreshProjectSubtitles()
         }
       } catch (error) {
         set({ message: `프로젝트 저장 실패: ${errorText(error)}` })
@@ -322,18 +343,27 @@ export const useStore = create<State>((set, get) => {
       await api.closeWindow()
     },
 
-    async loadSrt() {
-      const file = await api.pickSrt()
-      if (!file) return
-      let result: ReturnType<typeof overlaySrt>
+    async loadSrt(path) {
+      const { media, projectPath, mediaSession, job: previousJob } = get()
+      if (previousJob || (path && !media)) return
+      const job: Job = { label: '자막 불러오는 중', progress: null }
+      set({ job })
       try {
-        result = overlaySrt(get().clips, file.content)
+        const file = path
+          ? await api.readProjectSrt(projectPath ?? media!.path, path)
+          : await api.pickSrt()
+        if (!file || get().mediaSession !== mediaSession) return
+        const result = overlaySrt(get().clips, file.content)
+        commit(result.clips)
+        set({ srtPath: file.path, message: `자막 ${result.cues}개를 불러왔습니다.` })
       } catch (error) {
-        set({ message: errorText(error) })
-        return
+        if (get().mediaSession === mediaSession) {
+          set({ message: `자막 불러오기 실패: ${errorText(error)}` })
+          if (path) await refreshProjectSubtitles()
+        }
+      } finally {
+        if (get().job === job) set({ job: null })
       }
-      commit(result.clips)
-      set({ srtPath: file.path, message: `자막 ${result.cues}개를 불러왔습니다.` })
     },
 
     async saveSrt(saveAs = false) {
@@ -341,7 +371,10 @@ export const useStore = create<State>((set, get) => {
       if (clips.length === 0) return
       const fallback = media ? `${stripExtension(media.path)}.srt` : 'subtitles.srt'
       const path = await api.saveSrt(serializeSrt(clips), saveAs ? null : srtPath, srtPath ?? fallback)
-      if (path) set({ srtPath: path, message: `저장했습니다: ${path}` })
+      if (path) {
+        set({ srtPath: path, message: `저장했습니다: ${path}` })
+        await refreshProjectSubtitles()
+      }
     },
 
     async transcribe() {

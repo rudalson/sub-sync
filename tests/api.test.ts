@@ -61,6 +61,18 @@ describe('Tauri frontend bridge', () => {
     await api.cancelStt()
     expect(mocks.invoke).toHaveBeenLastCalledWith('cancel_stt')
   })
+  it('discovers and directly reads companion subtitles through the native bridge', async () => {
+    const projectPath = 'C:\\Projects\\편집.subsync'
+    const path = 'C:\\Projects\\편집.ko.srt'
+    const subtitles = [{ path, language: 'ko' }]
+    mocks.invoke.mockResolvedValueOnce(subtitles)
+    expect(await api.listProjectSubtitles(projectPath)).toEqual(subtitles)
+    expect(mocks.invoke).toHaveBeenLastCalledWith('list_project_subtitles', { projectPath })
+    const file = { path, content: '1\n00:00:01,000 --> 00:00:02,000\n안녕하세요' }
+    mocks.invoke.mockResolvedValueOnce(file)
+    expect(await api.readProjectSrt(projectPath, path)).toEqual(file)
+    expect(mocks.invoke).toHaveBeenLastCalledWith('read_project_srt', { projectPath, path })
+  })
   it('defers native window destruction to the editor autosave handler', async () => {
     await initializeNativeApi()
     const close = vi.fn()
