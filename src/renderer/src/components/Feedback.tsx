@@ -1,6 +1,9 @@
+import { useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useStore } from '../store'
 import { Modal } from './Modal'
+
+export const TOAST_DURATION_MS = 30_000
 
 /** Frequent pointer hints must not rerender the video, toolbar or virtual subtitle list. */
 export function Feedback() {
@@ -8,6 +11,14 @@ export function Feedback() {
   const message = useStore((state) => state.message)
   const dragHint = useStore((state) => state.dragHint)
   const progress = job?.progress == null ? null : Math.round(Math.max(0, Math.min(1, job.progress)) * 100)
+
+  useEffect(() => {
+    if (!message) return
+    const timer = setTimeout(() => {
+      useStore.getState().setMessage(null)
+    }, TOAST_DURATION_MS)
+    return () => clearTimeout(timer)
+  }, [message])
 
   return (
     <>
