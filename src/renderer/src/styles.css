@@ -101,6 +101,9 @@ kbd {
 
 .app { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) 30px; }
 .toolbar { min-width: 0; z-index: 2; }
+.toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.toolbar button svg { color: var(--icon); }
+.toolbar button:hover:not(:disabled) svg { color: inherit; }
 .project-bar { min-height: 56px; display: flex; align-items: center; gap: 24px; padding: 8px 20px; background: var(--chrome); box-shadow: inset 0 -1px 0 var(--line); }
 .project-identity { flex: 1; min-width: 0; }
 .project-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -123,8 +126,9 @@ kbd {
 .save-menu-content { position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; min-width: 280px; padding: 4px; border-radius: var(--radius-lg); background: var(--raised); box-shadow: var(--shadow-float); }
 .save-menu-content button { display: flex; width: 100%; min-height: var(--row); align-items: center; justify-content: space-between; gap: 20px; padding: 4px 8px; background: transparent; box-shadow: none; border-radius: var(--radius-sm); font-size: 14px; text-align: left; }
 .save-menu-content button:hover:not(:disabled) { background: var(--ink-2); }
+.save-menu-label { display: inline-flex; align-items: center; gap: 8px; }
 .save-menu-content kbd { background: none; box-shadow: none; padding: 0; }
-.command-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 4px 20px; background: var(--canvas); box-shadow: inset 0 -1px 0 var(--line); }
+.command-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 4px 20px; background: var(--canvas); box-shadow: inset 0 -1px 0 var(--line); }
 .command-bar button { color: var(--text-strong); }
 .secondary-tools { gap: 4px; }
 .secondary-tools .save-control > button, .secondary-tools .save-menu summary { background: transparent; box-shadow: none; }
@@ -338,7 +342,7 @@ button.edge:hover:not(:disabled), button.edge:active:not(:disabled) { background
 @media (max-width: 1200px) {
   .project-bar { gap: 16px; padding-inline: 16px; }
   .project-state { font-size: 12px; }
-  .command-bar { padding-inline: 16px; gap: 8px; flex-wrap: wrap; }
+  .command-bar { padding-inline: 16px; gap: 8px; }
   .command-group { gap: 4px; }
   .command-bar button { font-size: 14px; padding-inline: 9px; }
   .status-bar { padding-inline: 16px; gap: 16px; }

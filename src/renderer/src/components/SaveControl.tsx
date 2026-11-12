@@ -1,4 +1,4 @@
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, FilePenLine, Save } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 interface SaveControlProps {
@@ -40,7 +40,9 @@ export function SaveControl({ label, disabled, shortcut, saveAsLabel, saveAsShor
 
   return (
     <div className="save-control">
-      <button disabled={disabled} onClick={onSave} title={label + ' (' + shortcut + ')'}>{label}</button>
+      <button disabled={disabled} onClick={onSave} title={label + ' (' + shortcut + ')'}>
+        <Save size={16} aria-hidden="true" />{label}
+      </button>
       <details
         className="save-menu"
         ref={menu}
@@ -67,7 +69,8 @@ export function SaveControl({ label, disabled, shortcut, saveAsLabel, saveAsShor
               onSaveAs()
             }}
           >
-            <span>{saveAsLabel}</span><kbd>{saveAsShortcut}</kbd>
+            <span className="save-menu-label"><FilePenLine size={16} aria-hidden="true" />{saveAsLabel}</span>
+            <kbd>{saveAsShortcut}</kbd>
           </button>
         </div>
       </details>
