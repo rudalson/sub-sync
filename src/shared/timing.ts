@@ -1,6 +1,6 @@
 import type { Cue } from './types'
 
-export const MAX_SUBTITLE_GAP = 0.5
+export const MAX_SUBTITLE_GAP = 1
 
 /** Derive display/export timing without moving recognised words or the editor's timing anchors. */
 export function closeSubtitleGaps<T extends Cue>(cues: T[], maxGap = MAX_SUBTITLE_GAP): T[] {

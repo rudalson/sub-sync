@@ -49,20 +49,32 @@ describe('short subtitle gaps', () => {
   })
 
   it('preserves long pauses and the final subtitle end', () => {
-    const clips = [clip('first', 0, 1), clip('second', 2, 3)]
+    const clips = [clip('first', 0, 1), clip('second', 2.001, 3)]
     const displayed = closeSubtitleGaps(clips)
     expect(displayed).toEqual(clips)
     expect(clipIndexAt(displayed, 1.5)).toBe(-1)
     expect(parseSrt(serializeSrt(clips)).map(({ end }) => end)).toEqual([1, 3])
   })
 
-  it('includes a 500 ms gap despite floating-point error and preserves larger gaps', () => {
+  it('includes a one-second gap despite floating-point error and preserves larger gaps', () => {
     const result = closeSubtitleGaps([
-      clip('first', 100, 100.1),
-      clip('second', 100.6, 101),
-      clip('third', 101.501, 102)
+      clip('first', 3, 3.4),
+      clip('second', 4.4, 5),
+      clip('third', 6.001, 7)
     ])
-    expect(result.map(({ end }) => end)).toEqual([100.6, 101, 102])
+    expect(result.map(({ end }) => end)).toEqual([4.4, 5, 7])
+  })
+
+  it('closes the 780 ms gap in the screenshot for preview, SRT and video export', () => {
+    const clips = [clip('42', 178.2, 180.14), clip('43', 180.92, 184.28)]
+    const displayed = closeSubtitleGaps(clips)
+    expect(displayed.map(({ start, end }) => [start, end])).toEqual([[178.2, 180.92], [180.92, 184.28]])
+    expect(clipIndexAt(displayed, 180.5)).toBe(0)
+    expect(clipIndexAt(displayed, 180.92)).toBe(1)
+    expect(parseSrt(serializeSrt(clips)).map(({ start, end }) => [start, end]))
+      .toEqual([[178.2, 180.92], [180.92, 184.28]])
+    expect(buildAss(clips, { font: 'Malgun Gothic', weight: 700, sizePct: 5, marginPct: 6, box: true }, 1280, 720))
+      .toContain('Dialogue: 0,0:02:58.20,0:03:00.92,')
   })
 
   it('keeps original clip times, word anchors, confidence, IDs and text intact', () => {
