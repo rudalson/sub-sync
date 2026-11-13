@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from './project'
 import { segmentWords } from './segment'
 import { reconstructSentencesWithPreservation, type SentenceBoundaryOptions } from './sentenceBoundary'
 import { parseSrt } from './srt'
+import { closeSubtitleGaps } from './timing'
 import { PEAKS_PER_SECOND, type Clip, type MediaInfo, type ProjectFile, type Settings, type Word } from './types'
 
 /** Editing steps shared by the desktop editor and the command line, free of any UI or process code. */
@@ -27,12 +28,12 @@ export function mergeSettings(saved: Partial<Settings> = {}): Settings {
 }
 
 /**
- * Turns recognised words into clips. Subtitles loaded before any recognition keep their text and timing,
- * and the new words only become their anchors.
+ * Turns recognised words into clips, closing short gaps between them. Subtitles loaded before any recognition
+ * keep their text and timing, and the new words only become their anchors.
  */
 export function clipsFromTranscript(words: Word[], previous: Clip[], settings: Settings): Clip[] {
   const hasOnlySubtitles = previous.length > 0 && allWords(previous).length === 0
-  const clips = hasOnlySubtitles ? overlayCues(words, previous) : segmentWords(words, settings.segment)
+  const clips = hasOnlySubtitles ? overlayCues(words, previous) : closeSubtitleGaps(segmentWords(words, settings.segment))
   return applyDictionary(clips, parseDictionary(settings.dictionary))
 }
 
@@ -48,7 +49,7 @@ export function groupSentences(clips: Clip[], sentenceEnds: number[], options: S
   const result = reconstructSentencesWithPreservation(clips, sentenceEnds, options)
   if (!result.integrity.valid) throw new Error(result.integrity.error)
   return {
-    clips: result.sentences.map(({ id, start, end, text, words }): Clip => ({ id, start, end, text, words })),
+    clips: closeSubtitleGaps(result.sentences.map(({ id, start, end, text, words }): Clip => ({ id, start, end, text, words }))),
     uncertain: result.sentences.filter((sentence) => sentence.isUncertain).length
   }
 }

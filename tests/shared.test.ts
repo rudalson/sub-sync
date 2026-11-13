@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildAss } from '../src/shared/ass'
-import { applyDictionary, mergeWithNext, moveEdge, parseDictionary, splitClip } from '../src/shared/edits'
+import { applyDictionary, mergeWithNext, moveEdge, parseDictionary, setClipDuration, splitClip } from '../src/shared/edits'
 import { overlayCues } from '../src/shared/overlay'
 import { clipFromWords, joinWords, segmentWords } from '../src/shared/segment'
 import { parseSrt, serializeSrt } from '../src/shared/srt'
@@ -140,6 +140,27 @@ describe('edits', () => {
     const end = moveEdge(clips, 0, { kind: 'wordEnd', word: 0 }, 10)
     expect(end[0].end).toBe(3)
     expect(moveEdge(clips, 1, { kind: 'wordStart', word: 0 }, 0)[1].start).toBe(1)
+  })
+
+  it('sets a clip duration up to the next clip start without moving other clips', () => {
+    const clips: Clip[] = [
+      { id: 'a', start: 1, end: 3, text: 'one two', words: [{ text: 'one', start: 1, end: 2 }, { text: 'two', start: 2, end: 3 }] },
+      { id: 'b', start: 3.6, end: 5, text: 'three', words: [] }
+    ]
+    const shorter = setClipDuration(clips, 0, 1.5)
+    expect(shorter[0].end).toBe(2.5)
+    expect(shorter[0].words[1]).toEqual({ text: 'two', start: 2, end: 2.5 })
+    expect(shorter[1]).toBe(clips[1])
+    expect(clips[0].end).toBe(3)
+    // A hand-set end is written out as set: the short gap is not closed again.
+    expect(parseSrt(serializeSrt(shorter)).map(({ end }) => end)).toEqual([2.5, 5])
+
+    // The next clip start, the video end and the last word's start are the limits; 0.1s steps do not drift.
+    expect(setClipDuration(clips, 0, 9)[0].end).toBe(3.6)
+    expect(setClipDuration(clips, 1, 9, 6)[1].end).toBe(6)
+    expect(setClipDuration(clips, 0, 0)[0].end).toBeCloseTo(2.02)
+    expect(setClipDuration(clips, 0, 2 + 0.1)[0].end).toBe(3.1)
+    expect(setClipDuration(clips, 0, 2)).toBe(clips)
   })
 
   it('moves clips that have no words', () => {

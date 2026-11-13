@@ -6,6 +6,7 @@ import {
   moveEdge,
   parseDictionary,
   removeClip,
+  setClipDuration,
   setClipText,
   splitClip,
   type Edge
@@ -24,6 +25,7 @@ import { DEFAULT_SETTINGS } from '../../shared/project'
 import { joinWords, segmentWords } from '../../shared/segment'
 import type { SentenceBoundaryOptions } from '../../shared/sentenceBoundary'
 import { serializeSrt } from '../../shared/srt'
+import { closeSubtitleGaps } from '../../shared/timing'
 import { applyTranslations, glossaryTerms, translationCues, translationTarget } from '../../shared/translate'
 import { parseVideoUrl } from '../../shared/videoImport'
 import { pickFace } from '../../shared/fonts'
@@ -113,6 +115,8 @@ interface State {
   redo(): void
   editText(index: number, text: string): void
   dragEdge(index: number, edge: Edge, time: number): void
+  /** One undoable step per call; the next clip's start (or the video's end) is the limit. */
+  setDuration(index: number, seconds: number): void
   split(index: number, word: number): void
   merge(index: number): void
   remove(index: number): void
@@ -477,7 +481,7 @@ export const useStore = create<State>((set, get) => {
         const proceed = await api.confirm('수정한 자막 내용이 사라집니다.', '다시 자르면 인식된 영어 원문으로 되돌아갑니다. 실행 취소로 되돌릴 수 있습니다.')
         if (!proceed) return
       }
-      commit(segmentWords(words, settings.segment))
+      commit(closeSubtitleGaps(segmentWords(words, settings.segment)))
     },
 
     applySentenceBoundary(sourceClips, sentenceEnds, options = {}) {
@@ -588,6 +592,11 @@ export const useStore = create<State>((set, get) => {
 
     editText: (index, text) => set((state) => ({ clips: setClipText(state.clips, index, text) })),
     dragEdge: (index, edge, time) => set((state) => ({ clips: moveEdge(state.clips, index, edge, time) })),
+    setDuration(index, seconds) {
+      const { clips, media } = get()
+      const next = setClipDuration(clips, index, seconds, media?.duration)
+      if (next !== clips) commit(next)
+    },
     split: (index, word) => commit(splitClip(get().clips, index, word)),
     merge: (index) => commit(mergeWithNext(get().clips, index)),
     remove: (index) => commit(removeClip(get().clips, index))

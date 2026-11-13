@@ -113,6 +113,27 @@ export function moveEdge(clips: Clip[], index: number, edge: Edge, time: number)
   return clips.map((item, i) => (i === index ? { ...item, start, end, words } : item))
 }
 
+/** The shortest a clip can be: its last word keeps a sliver of its own. */
+export function minClipEnd(clip: Clip): number {
+  return (clip.words.at(-1)?.start ?? clip.start) + MIN_WORD
+}
+
+/**
+ * Sets how long a clip stays on screen by moving its end, never past the next clip's start (or `limit`).
+ * A shorter clip cuts its last word.
+ */
+export function setClipDuration(clips: Clip[], index: number, duration: number, limit = Number.POSITIVE_INFINITY): Clip[] {
+  const clip = clips[index]
+  const ceiling = Math.min(clips[index + 1]?.start ?? Number.POSITIVE_INFINITY, limit)
+  const end = clamp(Math.round((clip.start + duration) * 1000) / 1000, minClipEnd(clip), ceiling)
+  if (end === clip.end) return clips
+  const last = clip.words.length - 1
+  const words = last >= 0 && clip.words[last].end > end
+    ? clip.words.map((word, i) => (i === last ? { ...word, end } : word))
+    : clip.words
+  return clips.map((item, i) => (i === index ? { ...clip, end, words } : item))
+}
+
 export interface Dictionary {
   hotwords: string
   replacements: { pattern: RegExp; to: string }[]

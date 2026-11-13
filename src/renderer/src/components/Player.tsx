@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { closeSubtitleGaps } from '../../../shared/timing'
+import { visibleCues } from '../../../shared/timing'
 import { attachVideo, clipIndexAt, formatClock, formatTimecode, seek, seekBy, setRate, togglePlay, usePlayback, videoLoaded } from '../player'
 import { captionFont, useCaptionFace } from '../fonts'
 import { useStore } from '../store'
@@ -27,7 +27,7 @@ function useFittedSize(aspect: number) {
 function Caption() {
   const clips = useStore((state) => state.clips)
   const style = useStore((state) => state.settings.style)
-  const subtitles = useMemo(() => closeSubtitleGaps(clips), [clips])
+  const subtitles = useMemo(() => visibleCues(clips), [clips])
   const index = usePlayback((state) => clipIndexAt(subtitles, state.time))
   const face = useCaptionFace(style)
   const text = subtitles[index]?.text.trim()

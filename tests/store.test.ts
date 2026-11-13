@@ -154,7 +154,7 @@ describe('project editing session', () => {
     expect(useStore.getState().job).toBeNull()
     expect(useStore.getState().message).toContain('Python 환경')
   })
-  it('saves SRT with connected display timing while preserving editable speech anchors', async () => {
+  it('saves SRT with the timing as edited, without closing short gaps again', async () => {
     await useStore.getState().openMedia()
     const clips = makeProject().clips
     clips[1] = { ...clips[1], start: 4, text: '다음 자막' }
@@ -162,11 +162,22 @@ describe('project editing session', () => {
     api.saveSrt.mockResolvedValue('C:\\Videos\\원본.srt')
     await useStore.getState().saveSrt()
     const saved = parseSrt(api.saveSrt.mock.calls[0][0])
-    expect(saved[0].end).toBe(4)
+    expect(saved[0].end).toBe(3.875)
     expect(saved[1].start).toBe(4)
     expect(useStore.getState().clips).toBe(clips)
     expect(useStore.getState().clips[0].end).toBe(3.875)
     expect(useStore.getState().clips[0].words.at(-1)?.end).toBe(3.875)
+  })
+
+  it('closes short gaps when re-cutting subtitles from the recognised words', async () => {
+    await useStore.getState().openMedia()
+    const words = [
+      { text: 'Hello', start: 0, end: 0.5 }, { text: 'there.', start: 0.5, end: 1 },
+      { text: 'Next', start: 1.5, end: 2 }, { text: 'one.', start: 2, end: 2.5 }
+    ]
+    useStore.setState({ clips: [{ id: 'all', start: 0, end: 2.5, text: 'Hello there. Next one.', words }] })
+    await useStore.getState().recut()
+    expect(useStore.getState().clips.map(({ start, end }) => [start, end])).toEqual([[0, 1.5], [1.5, 2.5]])
   })
 
   it('saves all editing data separately from SRT, then overwrites or saves as requested', async () => {
@@ -257,6 +268,23 @@ describe('project editing session', () => {
     await useStore.getState().init()
     expect(useStore.getState().media).toBeNull()
     expect(useStore.getState().message).toBe('프로젝트를 열 수 없습니다: 프로젝트 파일이 손상되었습니다.')
+  })
+
+  it('steps a clip duration as one undoable edit and stops at the video end', async () => {
+    await useStore.getState().openMedia()
+    const clip = { id: 'only', start: 100, end: 110, text: 'last', words: [] }
+    useStore.setState({ clips: [clip] })
+    useStore.getState().setDuration(0, 10.1)
+    expect(useStore.getState().clips[0].end).toBe(110.1)
+    expect(useStore.getState().projectDirty).toBe(true)
+    useStore.getState().setDuration(0, 9999)
+    expect(useStore.getState().clips[0].end).toBe(media.duration)
+    const past = useStore.getState().past.length
+    useStore.getState().setDuration(0, 9999)
+    expect(useStore.getState().past).toHaveLength(past)
+    useStore.getState().undo()
+    useStore.getState().undo()
+    expect(useStore.getState().clips[0]).toEqual(clip)
   })
 
   it('restores a version 1 autosave and creates the missing waveform without rerunning STT', async () => {

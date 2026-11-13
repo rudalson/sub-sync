@@ -1,5 +1,5 @@
 import type { Clip, FontFace, SubtitleStyle } from './types'
-import { closeSubtitleGaps } from './timing'
+import { visibleCues } from './timing'
 
 function assTime(time: number): string {
   const total = Math.max(0, Math.round(time * 100))
@@ -50,7 +50,7 @@ export function buildAss(clips: Clip[], style: SubtitleStyle, width: number, hei
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text'
   ]
-  const events = closeSubtitleGaps(clips)
+  const events = visibleCues(clips)
     .map((clip) => `Dialogue: 0,${assTime(clip.start)},${assTime(clip.end)},Default,,0,0,0,,${assText(clip.text.trim())}`)
   return [...header, ...events, ''].join('\n')
 }

@@ -1,10 +1,14 @@
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef } from 'react'
-import type { Edge } from '../../../shared/edits'
+import { minClipEnd, type Edge } from '../../../shared/edits'
 import { PEAKS_PER_SECOND, type Clip } from '../../../shared/types'
 import { formatTimecode, seek, usePlayback, wordIndexAt } from '../player'
 import { useStore } from '../store'
 
 const SILENCE_CHIP = 0.25
+const DURATION_STEP = 0.1
+/** Below a millisecond the stored end and the limit are the same moment. */
+const SAME_TIME = 0.0005
 const SECONDS_PER_PIXEL = 0.01
 const WAVE_STEP = 2
 
@@ -212,14 +216,49 @@ const ChipView = memo(function ChipView({ chip, index, active }: { chip: Chip; i
   )
 })
 
+/** How long the subtitle stays on screen, with a stepper; the next subtitle's start is the ceiling. */
+function Duration({ clip, index, limit }: { clip: Clip; index: number; limit: number }) {
+  const seconds = clip.end - clip.start
+  const canGrow = clip.end < limit - SAME_TIME
+  const canShrink = clip.end > minClipEnd(clip) + SAME_TIME
+  const step = (delta: number) => useStore.getState().setDuration(index, seconds + delta)
+  return (
+    <span className="clip-duration">
+      <span className="duration-value" title="자막이 화면에 보이는 시간">
+        {seconds.toFixed(2)}<span className="duration-unit">초</span>
+      </span>
+      <span className="duration-stepper">
+        <button
+          aria-label={(index + 1) + '번 자막 0.1초 늘리기'}
+          title={canGrow ? '0.1초 늘리기' : '다음 자막 시작까지 늘렸습니다'}
+          disabled={!canGrow}
+          onClick={() => step(DURATION_STEP)}
+        >
+          <ChevronUp aria-hidden="true" />
+        </button>
+        <button
+          aria-label={(index + 1) + '번 자막 0.1초 줄이기'}
+          title="0.1초 줄이기"
+          disabled={!canShrink}
+          onClick={() => step(-DURATION_STEP)}
+        >
+          <ChevronDown aria-hidden="true" />
+        </button>
+      </span>
+    </span>
+  )
+}
+
 interface CardProps {
   clip: Clip
   index: number
   active: boolean
   isLast: boolean
+  /** The next subtitle's start, or the video's end for the last one. */
+  limit: number
 }
 
-export const ClipCard = memo(function ClipCard({ clip, index, active, isLast }: CardProps) {
+export const ClipCard = memo(function ClipCard({ clip, index, active, isLast, limit }: CardProps) {
   const store = useStore.getState()
   const chips = useMemo(() => buildChips(clip), [clip])
   const activeWord = usePlayback((state) => (active ? wordIndexAt(clip.words, state.time) : -1))
@@ -234,7 +273,7 @@ export const ClipCard = memo(function ClipCard({ clip, index, active, isLast }: 
         <span className="clip-time">
           <span>{formatTimecode(clip.start)}</span><span className="time-arrow" aria-hidden="true">→</span><span>{formatTimecode(clip.end)}</span>
         </span>
-        <span className="clip-duration">{(clip.end - clip.start).toFixed(2)}초</span>
+        <Duration clip={clip} index={index} limit={limit} />
       </header>
       <div className="chips">
         {chips.map((chip) => (

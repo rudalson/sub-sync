@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef } from 'react'
-import { closeSubtitleGaps } from '../../../shared/timing'
+import { visibleCues } from '../../../shared/timing'
 import { clipIndexAt, usePlayback } from '../player'
 import { useStore } from '../store'
 import { ClipCard } from './ClipCard'
@@ -10,17 +10,15 @@ export function ClipList() {
   const follow = useStore((state) => state.follow)
   const setFollow = useStore((state) => state.setFollow)
   const hasMedia = useStore((state) => state.media !== null)
-  const presentation = useMemo(() => {
-    const subtitles = closeSubtitleGaps(clips)
-    return {
-      subtitles,
-      byId: new Map(subtitles.map((clip) => [clip.id, clip])),
-      indices: new Map(clips.map((clip, index) => [clip.id, index]))
-    }
-  }, [clips])
+  const mediaEnd = useStore((state) => state.media?.duration ?? Number.POSITIVE_INFINITY)
+  // The highlighted card is the subtitle on screen, so emptied clips are skipped like in the preview.
+  const subtitles = useMemo(() => ({
+    visible: visibleCues(clips),
+    indices: new Map(clips.map((clip, index) => [clip.id, index]))
+  }), [clips])
   const active = usePlayback((state) => {
-    const clip = presentation.subtitles[clipIndexAt(presentation.subtitles, state.time)]
-    return clip ? presentation.indices.get(clip.id) ?? -1 : -1
+    const clip = subtitles.visible[clipIndexAt(subtitles.visible, state.time)]
+    return clip ? subtitles.indices.get(clip.id) ?? -1 : -1
   })
   const scroller = useRef<HTMLDivElement>(null)
 
@@ -67,10 +65,11 @@ export function ClipList() {
                 style={{ transform: `translateY(${item.start}px)` }}
               >
                 <ClipCard
-                  clip={presentation.byId.get(clips[item.index].id) ?? clips[item.index]}
+                  clip={clips[item.index]}
                   index={item.index}
                   active={item.index === active}
                   isLast={item.index === clips.length - 1}
+                  limit={clips[item.index + 1]?.start ?? mediaEnd}
                 />
               </div>
             ))}

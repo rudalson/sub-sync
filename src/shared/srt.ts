@@ -1,5 +1,5 @@
 import type { Clip, Cue } from './types'
-import { closeSubtitleGaps } from './timing'
+import { visibleCues } from './timing'
 
 const TIMING = /(\d{1,3}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,3}):(\d{2}):(\d{2})[,.](\d{1,3})/
 
@@ -34,7 +34,7 @@ export function formatSrtTime(time: number): string {
 }
 
 export function serializeSrt(clips: Clip[]): string {
-  return closeSubtitleGaps(clips.map((clip) => ({ ...clip, text: clip.text.replace(/\n\s*\n/g, '\n').trim() })))
+  return visibleCues(clips.map((clip) => ({ ...clip, text: clip.text.replace(/\n\s*\n/g, '\n').trim() })))
     .map((clip, i) => `${i + 1}\n${formatSrtTime(clip.start)} --> ${formatSrtTime(clip.end)}\n${clip.text}\n`)
     .join('\n')
 }

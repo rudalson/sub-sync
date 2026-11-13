@@ -209,7 +209,14 @@ kbd {
 .active .clip-number { color: var(--accent-text); }
 .clip-time { display: flex; flex: 1; align-items: center; flex-wrap: wrap; gap: 4px 8px; color: var(--text); font: 13px var(--mono); font-variant-numeric: tabular-nums; }
 .time-arrow { color: var(--text-faint); }
-.clip-duration { color: var(--text-faint); font: 12px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The on-screen time is the number edited most, so it reads brighter and larger than the timestamps beside it */
+.clip-duration { display: flex; flex-shrink: 0; align-items: center; gap: 2px; padding: 0 2px 0 8px; min-height: 26px; background: var(--ink-2); border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--line); white-space: nowrap; }
+.duration-value { color: var(--text-strong); font: 600 15px var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.duration-unit { margin-left: 2px; color: var(--text); font: 500 12px 'Pretendard', 'Malgun Gothic', 'Segoe UI', system-ui, sans-serif; }
+.duration-stepper { display: flex; flex-direction: column; }
+.duration-stepper button { display: grid; place-items: center; width: 18px; min-height: 0; height: 12px; padding: 0; background: transparent; box-shadow: none; color: var(--text); border-radius: 3px; }
+.duration-stepper button:hover:not(:disabled) { background: var(--ink-3); color: var(--text-strong); }
+.duration-stepper svg { width: 13px; height: 13px; stroke-width: 2.5; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px 6px; }
 .chip { position: relative; min-width: 34px; max-width: 100%; background: var(--ink-1); border-radius: var(--radius-sm); box-shadow: inset 0 0 0 1px var(--line); user-select: none; transition: background-color 160ms ease, box-shadow 160ms ease; }
 .chip:hover, .chip:focus-within { background: var(--ink-2); box-shadow: inset 0 0 0 1px var(--ink-4); }
@@ -349,7 +356,6 @@ button.edge:hover:not(:disabled), button.edge:active:not(:disabled) { background
   .clip-scroll { padding-inline: 12px; }
   .clip { padding: 10px 12px; }
   .clip-time { font-size: 12px; gap: 4px 6px; }
-  .clip-duration { display: none; }
   .transport { padding-inline: 16px; }
   .panel-help { padding-inline: 16px; }
 }
