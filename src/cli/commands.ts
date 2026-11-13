@@ -51,7 +51,7 @@ const HELP: Record<string, string> = {
 옵션:
   -p, --project <경로>       프로젝트 경로 (기본: <영상 이름>.subsync)
   -o, --output <경로>        SRT도 함께 저장
-      --model <이름>         Whisper 모델 (예: large-v3-turbo)
+      --model <이름>         Whisper 모델 (예: large-v3, large-v3-turbo)
       --language <코드>      인식 언어 (예: en)
       --device <장치>        auto | cuda | cpu
       --dict <파일>          오인식 사전 파일 (한 줄에 하나: 용어 또는 잘못된말 => 바른말)

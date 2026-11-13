@@ -1,4 +1,4 @@
-import { BookOpen, Bot, Captions, Combine, Download, FileUp, FileVideo2, FolderOpen, Redo2, Scissors, Undo2, Upload } from 'lucide-react'
+import { BookOpen, Bot, Captions, Combine, Download, FileUp, FileVideo2, FolderOpen, Redo2, Scissors, Undo2, Upload, WandSparkles } from 'lucide-react'
 import englishFlag from '../assets/flags/us.svg'
 import koreanFlag from '../assets/flags/kr.svg'
 import { useStore } from '../store'
@@ -19,6 +19,7 @@ export function Toolbar() {
   const projectPath = useStore((state) => state.projectPath)
   const dirty = useStore((state) => state.projectDirty)
   const hasClips = useStore((state) => state.clips.length > 0)
+  const hasWords = useStore((state) => state.clips.some((clip) => clip.words.length > 0))
   const canUndo = useStore((state) => state.past.length > 0)
   const canRedo = useStore((state) => state.future.length > 0)
   const projectSubtitles = useStore((state) => state.projectSubtitles)
@@ -70,6 +71,14 @@ export function Toolbar() {
           </button>
           <button className="quiet" disabled={!media} onClick={() => useStore.getState().setDialog('stt')}>
             <Captions size={16} aria-hidden="true" />자막 생성
+          </button>
+          <button
+            className="quiet"
+            disabled={busy || !hasWords}
+            onClick={() => void useStore.getState().startRefine()}
+            title="Antigravity Agent가 잘못 들린 단어와 빠진 문장부호를 찾아 고칩니다 (자막 생성 뒤 자동 실행)"
+          >
+            <WandSparkles size={16} aria-hidden="true" />영어 다듬기
           </button>
           <button className="quiet" disabled={!hasClips} onClick={() => useStore.getState().setDialog('sentenceBoundary')}>
             <Combine size={16} aria-hidden="true" />문장으로 묶기

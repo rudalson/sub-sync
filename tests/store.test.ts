@@ -8,6 +8,7 @@ const api = {
   listProjectSubtitles: vi.fn(), readProjectSrt: vi.fn(), pickSrt: vi.fn(),
   importVideo: vi.fn(), cancelImportVideo: vi.fn(), onImportProgress: vi.fn(),
   startAgentTranslate: vi.fn(), cancelAgentTranslate: vi.fn(), onTranslateProgress: vi.fn(),
+  startAgentRefine: vi.fn(), cancelAgentRefine: vi.fn(), onRefineProgress: vi.fn(),
   saveSettings: vi.fn(), loadSettings: vi.fn(), onProgress: vi.fn(),
   startStt: vi.fn(), onSttEvent: vi.fn(), saveSrt: vi.fn(), closeWindow: vi.fn(), confirm: vi.fn()
 }
@@ -42,6 +43,8 @@ beforeEach(() => {
   api.cancelImportVideo.mockResolvedValue(undefined)
   api.onTranslateProgress.mockReturnValue(vi.fn())
   api.cancelAgentTranslate.mockResolvedValue(undefined)
+  api.onRefineProgress.mockReturnValue(vi.fn())
+  api.cancelAgentRefine.mockResolvedValue(undefined)
 })
 
 afterEach(async () => {
@@ -671,5 +674,96 @@ describe('project editing session', () => {
     expect(useStore.getState().job).toBeNull()
     expect(useStore.getState().message).toContain('Antigravity CLI(agy)를 실행할 수 없습니다')
     expect(useStore.getState().message).not.toContain('이어서')
+  })
+})
+
+describe('English clean-up after recognition', () => {
+  type SttListener = (event: { type: string; [key: string]: unknown }) => void
+  const heard = [
+    { text: 'inside', start: 0, end: 0.4, prob: 0.9 }, { text: 'of', start: 0.5, end: 0.7, prob: 0.9 },
+    { text: 'Cloud', start: 0.8, end: 1.1, prob: 0.3 }, { text: 'Code', start: 1.2, end: 1.5, prob: 0.9 },
+    { text: 'go', start: 1.6, end: 1.8, prob: 0.9 }, { text: 'ahead', start: 1.9, end: 2.3, prob: 0.9 }
+  ]
+  async function recognise(language: string) {
+    await useStore.getState().openMedia()
+    let listener: SttListener | undefined
+    api.onSttEvent.mockImplementation((next: SttListener) => {
+      listener = next
+      return vi.fn()
+    })
+    api.startStt.mockImplementation(async () => {
+      listener?.({ type: 'segment', words: heard })
+      listener?.({ type: 'done', language, device: 'cuda' })
+    })
+    await useStore.getState().transcribe()
+  }
+
+  it('runs right after English recognition and opens the proposed corrections for review', async () => {
+    let progress: ((event: { label: string; progress: number | null }) => void) | undefined
+    api.onRefineProgress.mockImplementation((listener) => {
+      progress = listener
+      return vi.fn()
+    })
+    api.startAgentRefine.mockImplementation(async () => {
+      progress?.({ label: '영어 다듬기 · 교정 중 1/1', progress: 0.5 })
+      expect(useStore.getState().job?.label).toBe('영어 다듬기 · 교정 중 1/1')
+      return {
+        edits: [{ start: 0, end: 1, text: 'Inside' }, { start: 2, end: 4, text: 'Claude Code,' }, { start: 5, end: 6, text: 'ahead.' }],
+        terms: ['Claude Code'], rejected: 2, failed: 0
+      }
+    })
+    await recognise('en')
+
+    expect(api.startAgentRefine).toHaveBeenCalledExactlyOnceWith({
+      mediaPath: media.path, words: heard.map((w) => w.text), uncertain: [2], glossary: []
+    })
+    const state = useStore.getState()
+    expect(state.job).toBeNull()
+    expect(state.dialog).toBe('refine')
+    expect(state.refinement?.source).toBe(state.clips)
+    expect(state.refinement?.corrections.map((c) => [c.kind, c.text])).toEqual([['style', 'Inside'], ['word', 'Claude Code,'], ['style', 'ahead.']])
+    expect(state.refinement?.dropped).toBe(2)
+    // Recognition is already committed; the clean-up waits for review.
+    expect(state.clips.flatMap((clip) => clip.words).map((w) => w.text)).toEqual(heard.map((w) => w.text))
+
+    const recognised = state.clips
+    useStore.getState().applyRefinement(state.refinement!.corrections.slice(1), ['Claude Code'])
+    const after = useStore.getState()
+    expect(after.clips.flatMap((clip) => clip.words).map((w) => w.text)).toEqual(['inside', 'of', 'Claude', 'Code,', 'go', 'ahead.'])
+    expect(after.clips.flatMap((clip) => clip.words).map((w) => w.start)).toEqual(heard.map((w) => w.start))
+    expect(after.settings.dictionary).toBe('Claude Code')
+    expect(api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ dictionary: 'Claude Code' }))
+    expect(after.refinement).toBeNull()
+    expect(after.dialog).toBeNull()
+    expect(after.message).toContain('2곳')
+    useStore.getState().undo()
+    expect(useStore.getState().clips).toBe(recognised)
+  })
+
+  it('leaves other languages alone and keeps the subtitles when the agent fails', async () => {
+    await recognise('ko')
+    expect(api.startAgentRefine).not.toHaveBeenCalled()
+
+    api.startAgentRefine.mockRejectedValue(new Error('Antigravity CLI(agy)를 실행할 수 없습니다.'))
+    await recognise('en')
+    const state = useStore.getState()
+    expect(state.clips.flatMap((clip) => clip.words)).toEqual(heard)
+    expect(state.message).toContain('영어 다듬기 실패')
+    expect(state.message).toContain('인식된 그대로')
+    expect(state.job).toBeNull()
+    expect(state.dialog).toBeNull()
+  })
+
+  it('refuses corrections made for subtitles that changed during review', async () => {
+    api.startAgentRefine.mockResolvedValue({ edits: [{ start: 2, end: 4, text: 'Claude Code' }], terms: [], rejected: 0, failed: 1 })
+    await recognise('en')
+    const { refinement } = useStore.getState()
+    expect(refinement?.failed).toBe(1)
+    useStore.getState().remove(0)
+    const edited = useStore.getState().clips
+    useStore.getState().applyRefinement(refinement!.corrections, [])
+    expect(useStore.getState().clips).toBe(edited)
+    expect(useStore.getState().message).toContain('다시 실행')
+    expect(useStore.getState().refinement).toBeNull()
   })
 })

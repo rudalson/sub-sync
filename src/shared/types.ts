@@ -155,6 +155,57 @@ export interface TranslateProgress {
   translations: TranslateCue[]
 }
 
+/** One over-long sentence for the agent: its words and the 1-based numbers of words followed by a pause. */
+export interface SentenceSplitSpan {
+  id: number
+  words: string[]
+  pauses: number[]
+}
+
+export interface SentenceSplitRequest {
+  spans: SentenceSplitSpan[]
+  /** A sentence longer than this is split again at a clause boundary. */
+  maxWords: number
+}
+
+/** The last word number of each piece, ending with the span's word count. */
+export interface SentenceSplitResult {
+  id: number
+  ends: number[]
+}
+
+/** The recognised English sent for clean-up: only word texts, never their timing. */
+export interface RefineRequest {
+  /** The open video; title, description and chapters saved beside it go along as hints. */
+  mediaPath: string
+  words: string[]
+  /** 0-based indices of words the recogniser was unsure about. */
+  uncertain: number[]
+  glossary: string[]
+}
+
+/** Replace words `start` to `end` (0-based, exclusive) with `text`. */
+export interface RefineEdit {
+  start: number
+  end: number
+  text: string
+}
+
+export interface RefineResult {
+  edits: RefineEdit[]
+  /** Terms the agent found the video uses, as spelled there. */
+  terms: string[]
+  /** Edits dropped because they did not match the words or broke the rules. */
+  rejected: number
+  /** Stretches left as recognised because no usable answer came back. */
+  failed: number
+}
+
+export interface RefineProgress {
+  label: string
+  progress: number | null
+}
+
 export interface Api {
   pickMedia(): Promise<string | null>
   pickImportDirectory(initial: string | null): Promise<string | null>
@@ -189,5 +240,10 @@ export interface Api {
   onTranslateProgress(listener: (event: TranslateProgress) => void): () => void
   onProgress(listener: (fraction: number) => void): () => void
   sentenceBoundaries(words: string[]): Promise<number[]>
+  agentSplitSentences(request: SentenceSplitRequest): Promise<SentenceSplitResult[]>
+  cancelAgentSplit(): Promise<void>
+  startAgentRefine(request: RefineRequest): Promise<RefineResult>
+  cancelAgentRefine(): Promise<void>
+  onRefineProgress(listener: (event: RefineProgress) => void): () => void
   listFonts(): Promise<FontFamily[]>
 }

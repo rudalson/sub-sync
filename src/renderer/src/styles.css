@@ -323,6 +323,11 @@ button.edge:hover:not(:disabled), button.edge:active:not(:disabled) { background
 .callout.info { background: var(--accent-soft); box-shadow: none; }
 .callout strong { display: block; margin-bottom: 4px; color: var(--text-strong); }
 .callout p { color: var(--text); margin: 0; font-size: 13px; }
+.callout.agent-split { display: flex; flex-direction: column; gap: 6px; }
+.callout.agent-split strong { margin-bottom: 0; }
+.callout [role="alert"] { color: var(--warning-text); }
+.agent-split-actions { display: flex; align-items: center; gap: 10px; margin-top: 2px; font-size: 13px; color: var(--text); }
+.agent-split-actions button { display: inline-flex; align-items: center; gap: 6px; }
 
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -341,10 +346,29 @@ button.edge:hover:not(:disabled), button.edge:active:not(:disabled) { background
 
 /* Status pills: a soft fill in the status's own tone, no border */
 .badge { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 500; }
-.badge-edited { background: var(--accent-soft); color: var(--accent-text); }
+.badge-edited, .badge-agent { background: var(--accent-soft); color: var(--accent-text); }
 .badge-no-punctuation, .badge-ellipsis, .badge-long-pause, .badge-too-long, .badge-edited-boundary, .badge-no-words, .badge-wordless-boundary { background: var(--warning-soft); color: var(--warning-text); }
 
 .item-text { font-size: 14px; line-height: 1.5; color: var(--text-strong); overflow-wrap: anywhere; }
+
+/* English clean-up review: each heard-wrong word on its own line, in its sentence */
+.refine-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.refine-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.refine-heading h3 { font-size: 13px; font-weight: 600; color: var(--text); }
+.refine-bulk { display: flex; gap: 4px; }
+.refine-bulk button { height: 28px; padding: 0 10px; font-size: 12px; }
+.refine-list { list-style: none; margin: 0; padding: 0 4px 0 0; display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+.refine-item { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; column-gap: 10px; row-gap: 4px; padding: 8px 12px; background: var(--surface); border-radius: var(--radius-md); box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; }
+.refine-item:hover { box-shadow: inset 0 0 0 1px var(--ink-4); }
+.refine-item input { align-self: center; }
+.refine-item.off { opacity: .55; }
+.refine-time { font-family: var(--mono); font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
+.refine-change { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: 14px; color: var(--text); }
+.refine-context { grid-column: 3; font-size: 12px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.refine-item del, .refine-samples del { color: var(--text); text-decoration-color: var(--warning-text); }
+.refine-item ins, .refine-samples ins { text-decoration: none; font-weight: 600; color: var(--accent-text); }
+.refine-context mark { background: var(--warning-soft); color: var(--warning-text); border-radius: 3px; padding: 0 2px; }
+.refine-samples { display: flex; flex-wrap: wrap; gap: 4px 14px; font-family: var(--mono); font-size: 12px; }
 .item-uncertain-details { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; box-shadow: inset 0 1px 0 var(--line); font-size: 12px; color: var(--warning-text); }
 
 @keyframes slide { from { transform: translateX(-20%); } to { transform: translateX(210%); } }

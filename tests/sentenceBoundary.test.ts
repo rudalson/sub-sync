@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  reconstructSentencesFromWords, reconstructSentencesWithPreservation,
+  agentSplitRequest, longSentenceSpans, mergeSplitEnds, reconstructSentencesFromWords, reconstructSentencesWithPreservation,
   validateReconstruction, validateSentenceEnds, validateWordIntegrity
 } from '../src/shared/sentenceBoundary'
 import type { Clip, Word } from '../src/shared/types'
@@ -131,5 +131,45 @@ describe('preserving edited and wordless captions', () => {
       [{ ...words[0], prob: 0 }, words[1]],
       [{ ...words[0], text: 'Changed' }, words[1]]
     ]) expect(validateWordIntegrity(words, [{ words: changed }]).valid).toBe(false)
+  })
+})
+
+describe('splitting too-long sentences with the agent', () => {
+  // 50 unpunctuated words (24.5 s) after a short sentence, then a pause of 0.6 s inside the long one.
+  const short = wordsFrom('Hello there.')
+  const long = wordsFrom(Array.from({ length: 50 }, (_, i) => 'w' + i).join(' '), 2)
+  long.slice(10).forEach((word) => { word.start += 0.6; word.end += 0.6 })
+  const words = [...short, ...long]
+
+  it('picks only the sentences the review marks too long', () => {
+    expect(longSentenceSpans(words, [2, 52])).toEqual([{ start: 2, end: 52 }])
+    expect(longSentenceSpans(words, [2, 30, 52])).toEqual([])
+    expect(longSentenceSpans(words, [2, 30, 52], { maxDurationThreshold: 10 })).toEqual([{ start: 2, end: 30 }, { start: 30, end: 52 }])
+    expect(() => longSentenceSpans(words, [2])).toThrow()
+  })
+
+  it('sends only the words and the pause positions, numbered within each span', () => {
+    const request = agentSplitRequest(words, [{ start: 2, end: 52 }])
+    expect(request.maxWords).toBe(25)
+    expect(request.spans).toHaveLength(1)
+    expect(request.spans[0]).toEqual({ id: 1, words: long.map((word) => word.text), pauses: [10] })
+    expect(JSON.stringify(request)).not.toContain('start')
+  })
+
+  it('adds the checked cuts to the sentence ends and the result keeps every word', () => {
+    const spans = [{ start: 2, end: 52 }]
+    const ends = mergeSplitEnds([2, 52], spans, [{ id: 1, ends: [10, 30, 50] }])
+    expect(ends).toEqual([2, 12, 32, 52])
+    const sentences = reconstructSentencesFromWords(words, ends)
+    expect(sentences.map((sentence) => sentence.words.length)).toEqual([2, 10, 20, 20])
+    expect(validateWordIntegrity(words, sentences).valid).toBe(true)
+  })
+
+  it('refuses answers that skip, overrun or leave out a span', () => {
+    const spans = [{ start: 2, end: 52 }]
+    for (const answer of [[10, 49], [10, 51], [0, 50], [30, 10, 50], [10.5, 50]]) {
+      expect(() => mergeSplitEnds([2, 52], spans, [{ id: 1, ends: answer }])).toThrow()
+    }
+    expect(() => mergeSplitEnds([2, 52], spans, [{ id: 2, ends: [50] }])).toThrow('빠진')
   })
 })

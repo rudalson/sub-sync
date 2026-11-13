@@ -513,6 +513,38 @@ pub fn cancel_agent_translate(state: State<'_, Shared>) {
     backend::cancel(&state.translate);
 }
 #[tauri::command]
+pub async fn agent_split_sentences(
+    state: State<'_, Shared>,
+    request: crate::sentence_agent::SplitRequest,
+) -> Result<Vec<crate::sentence_agent::SplitResult>, String> {
+    let state = state.inner().clone();
+    worker(move || crate::sentence_agent::split(&state, request)).await
+}
+/// Sentence splitting shares the agent slot with translation, so this stops whichever runs.
+#[tauri::command]
+pub fn cancel_agent_split(state: State<'_, Shared>) {
+    backend::cancel(&state.translate);
+}
+#[tauri::command]
+pub async fn start_agent_refine(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    request: crate::refine::RefineRequest,
+) -> Result<crate::refine::RefineResult, String> {
+    let state = state.inner().clone();
+    worker(move || {
+        crate::refine::refine(&state, request, move |event| {
+            let _ = app.emit("refine-progress", event);
+        })
+    })
+    .await
+}
+/// English clean-up shares the agent slot with translation, so this stops whichever runs.
+#[tauri::command]
+pub fn cancel_agent_refine(state: State<'_, Shared>) {
+    backend::cancel(&state.translate);
+}
+#[tauri::command]
 pub fn close_window(window: WebviewWindow, state: State<'_, Shared>) -> Result<(), String> {
     state.cancel_jobs();
     window.destroy().map_err(|e| e.to_string())

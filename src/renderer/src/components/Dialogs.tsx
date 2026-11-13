@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { FolderOpen } from 'lucide-react'
-import { reconstructSentencesWithPreservation, validateSentenceEnds, type UncertaintyReason } from '../../../shared/sentenceBoundary'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Bot, FolderOpen } from 'lucide-react'
+import {
+  AGENT_SPLIT_MAX_WORDS, agentSplitRequest, longSentenceSpans, mergeSplitEnds, reconstructSentencesWithPreservation,
+  validateSentenceEnds, type ReconstructedSentence, type UncertaintyReason, type WordSpan
+} from '../../../shared/sentenceBoundary'
 import type { SegmentOptions, Word } from '../../../shared/types'
 import { stripExtension } from '../../../shared/pipeline'
+import { newDictionaryTerms } from '../../../shared/refine'
 import { translationCues, translationTarget } from '../../../shared/translate'
 import { formatTimecode } from '../player'
 import { resumableTranslations, useStore } from '../store'
@@ -10,8 +14,8 @@ import { FontPicker } from './FontPicker'
 import { Modal } from './Modal'
 
 const MODELS = [
-  { id: 'large-v3-turbo', label: 'large-v3-turbo (권장)' },
-  { id: 'large-v3', label: 'large-v3 (정확, 느림)' },
+  { id: 'large-v3', label: 'large-v3 (권장, 정확)' },
+  { id: 'large-v3-turbo', label: 'large-v3-turbo (빠름)' },
   { id: 'medium.en', label: 'medium.en (영어 전용)' },
   { id: 'small.en', label: 'small.en (영어 전용)' },
   { id: 'base.en', label: 'base.en (영어 전용, 빠름)' }
@@ -310,11 +314,20 @@ function SentenceBoundaryDialog() {
   const [retry, setRetry] = useState(0)
   const [applyError, setApplyError] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<{ words: Word[]; ends?: number[]; error?: string } | null>(null)
+  // Agent splitting of the sentences pySBD left too long; `ranges` are the word spans it has split so far.
+  const [split, setSplit] = useState<{ running: boolean; error?: string; ranges: WordSpan[]; before: number; after: number }>(
+    { running: false, ranges: [], before: 0, after: 0 }
+  )
+  const splitting = useRef(false)
   const allWords = useMemo(() => clips.flatMap((clip) => clip.words), [clips])
+
+  // Closing the dialog stops an agent call still running for it.
+  useEffect(() => () => { if (splitting.current) void window.api.cancelAgentSplit() }, [])
 
   useEffect(() => {
     let active = true
     setAnalysis(null)
+    setSplit({ running: false, ranges: [], before: 0, after: 0 })
     if (allWords.length > 0) {
       void window.api.sentenceBoundaries(allWords.map((word) => word.text)).then((ends) => {
         validateSentenceEnds(allWords.length, ends)
@@ -339,8 +352,47 @@ function SentenceBoundaryDialog() {
     }
   }, [analysis, allWords, clips, preserveEdits, pauseThreshold, maxDurationThreshold])
   const result = preview.result
-  const uncertainCount = result?.sentences.filter((sentence) => sentence.isUncertain).length ?? 0
+  const longSpans = useMemo(
+    () => analysis?.ends && analysis.words === allWords ? longSentenceSpans(allWords, analysis.ends, { maxDurationThreshold }) : [],
+    [analysis, allWords, maxDurationThreshold]
+  )
+  // Sentences start where the previous one's words end, so a running word count finds the agent's pieces.
+  const agentSplitIds = useMemo(() => {
+    const ids = new Set<string>()
+    let offset = 0
+    for (const sentence of result?.sentences ?? []) {
+      if (sentence.words.length > 0 && split.ranges.some(({ start, end }) => offset >= start && offset < end)) ids.add(sentence.id)
+      offset += sentence.words.length
+    }
+    return ids
+  }, [result, split.ranges])
+  // The agent chose where its pieces end, so a piece without a full stop is not a doubt of its own.
+  const reasonsOf = (sentence: ReconstructedSentence) => agentSplitIds.has(sentence.id)
+    ? sentence.uncertainties.filter((reason) => reason.type !== 'no-punctuation')
+    : sentence.uncertainties
+  const uncertainCount = result?.sentences.filter((sentence) => reasonsOf(sentence).length > 0).length ?? 0
   const close = () => useStore.getState().setDialog(null)
+
+  const splitWithAgent = async () => {
+    const source = analysis
+    if (!source?.ends || source.words !== allWords || longSpans.length === 0) return
+    const spans = longSpans
+    splitting.current = true
+    setSplit((current) => ({ ...current, running: true, error: undefined }))
+    try {
+      const results = await window.api.agentSplitSentences(agentSplitRequest(source.words, spans))
+      const ends = mergeSplitEnds(source.ends, spans, results)
+      setAnalysis((current) => current === source ? { ...source, ends } : current)
+      setSplit((current) => ({
+        running: false, ranges: [...current.ranges, ...spans],
+        before: current.before + spans.length, after: current.after + results.reduce((sum, { ends }) => sum + ends.length, 0)
+      }))
+    } catch (error) {
+      setSplit((current) => ({ ...current, running: false, error: error instanceof Error ? error.message : String(error) }))
+    } finally {
+      splitting.current = false
+    }
+  }
 
   if (allWords.length === 0) {
     return (
@@ -364,7 +416,7 @@ function SentenceBoundaryDialog() {
       description="pySBD로 영어 원문의 문장 경계를 분석합니다. 원문 단어와 타임스탬프는 유지합니다."
       onClose={close}
       className="modal-wide"
-      footer={<button className="primary" disabled={!result?.integrity.valid} onClick={handleApply}>
+      footer={<button className="primary" disabled={!result?.integrity.valid || split.running} onClick={handleApply}>
         {result ? '자막에 적용 (' + result.sentences.length + '개)' : '자막에 적용'}
       </button>}
     >
@@ -395,6 +447,25 @@ function SentenceBoundaryDialog() {
             <span className="stat-label">단어·기존 자막 보존 검사</span><span className="stat-value">{result.integrity.valid ? '통과' : '실패'}</span>
           </div>
         </div>
+        {(longSpans.length > 0 || split.running || split.error || split.before > 0) && <div className="callout info agent-split">
+          {longSpans.length > 0
+            ? <strong>길이 초과 문장 {longSpans.length}개</strong>
+            : <strong>길이 초과 문장을 모두 나눴습니다</strong>}
+          {split.before > 0 && <p>Agent가 긴 문장 {split.before}개를 {split.after}개로 나눴습니다. 미리보기에서 확인한 뒤 적용하세요.</p>}
+          {longSpans.length > 0 && <p>
+            음성 인식이 마침표를 빠뜨리면 여러 문장이 하나로 붙습니다. 이 문장들의 단어만 Agent에 보내 문장이 끝나는 곳을 찾고,
+            {' '}{AGENT_SPLIT_MAX_WORDS}단어가 넘는 문장은 뜻이 이어지는 절 단위로 나눕니다. 단어와 시간은 바뀌지 않으며 Antigravity CLI(agy)의 쿼터를 사용합니다.
+          </p>}
+          {split.error && <p role="alert">{split.error}</p>}
+          {split.running
+            ? <div className="agent-split-actions">
+              <span role="status">Agent가 문장을 나누는 중…</span>
+              <button onClick={() => void window.api.cancelAgentSplit()}>취소</button>
+            </div>
+            : longSpans.length > 0 && <div className="agent-split-actions">
+              <button onClick={() => void splitWithAgent()}><Bot size={16} aria-hidden="true" />Agent로 나누기</button>
+            </div>}
+        </div>}
         <section className="settings-group">
           <h3>검토 기준 설정</h3>
           <div className="field-row">
@@ -410,28 +481,121 @@ function SentenceBoundaryDialog() {
         </section>
         <section className="preview-section">
           <h3>복원 결과 미리보기 ({result.sentences.length}개 카드)</h3>
-          <p className="note">길이와 침묵 기준은 검토 표시용입니다. 이 기준으로 문장을 강제로 나누지 않습니다.</p>
+          <p className="note">길이와 침묵 기준은 검토 표시용이라 이 기준으로 문장을 자르지 않습니다. 길이 초과 문장은 위의 Agent로 나누기를 쓰세요.</p>
           <div className="sentence-preview-list" tabIndex={0} aria-label="문장 복원 미리보기 목록">
-            {result.sentences.map((sentence, index) => <div key={sentence.id}
-              className={'sentence-preview-item' + (sentence.isUncertain ? ' uncertain' : '') + (sentence.hasEditedText ? ' edited' : '')}>
+            {result.sentences.map((sentence, index) => { const reasons = reasonsOf(sentence); return <div key={sentence.id}
+              className={'sentence-preview-item' + (reasons.length > 0 ? ' uncertain' : '') + (sentence.hasEditedText ? ' edited' : '')}>
               <div className="item-meta">
                 <span className="item-index">#{index + 1}</span>
                 <span className="item-time">{formatTimecode(sentence.start)} ~ {formatTimecode(sentence.end)} ({sentence.words.length}단어)</span>
                 <div className="item-badges">
                   {sentence.hasEditedText && <span className="badge badge-edited">수정 내용 보존</span>}
-                  {sentence.uncertainties.map((reason) => <span key={reason.type} className={'badge badge-' + reason.type} title={reason.message}>
+                  {agentSplitIds.has(sentence.id) && <span className="badge badge-agent" title="Agent가 나눈 문장입니다">Agent 분할</span>}
+                  {reasons.map((reason) => <span key={reason.type} className={'badge badge-' + reason.type} title={reason.message}>
                     {UNCERTAINTY_LABELS[reason.type]}
                   </span>)}
                 </div>
               </div>
               <div className="item-text">{sentence.text}</div>
-              {sentence.isUncertain && <div className="item-uncertain-details">
-                {sentence.uncertainties.map((reason) => <span key={reason.type}>{reason.message}</span>)}
+              {reasons.length > 0 && <div className="item-uncertain-details">
+                {reasons.map((reason) => <span key={reason.type}>{reason.message}</span>)}
               </div>}
-            </div>)}
+            </div> })}
           </div>
         </section>
       </div>}
+    </Dialog>
+  )
+}
+
+/** A few recognised words either side of a correction, so it can be judged in its sentence. */
+const CONTEXT_WORDS = 5
+
+function RefineDialog() {
+  const refinement = useStore((state) => state.refinement)
+  const dictionary = useStore((state) => state.settings.dictionary)
+  const words = useMemo(() => refinement?.source.flatMap((clip) => clip.words) ?? [], [refinement])
+  const wordFixes = useMemo(() => refinement?.corrections.filter((c) => c.kind === 'word') ?? [], [refinement])
+  const styleFixes = useMemo(() => refinement?.corrections.filter((c) => c.kind === 'style') ?? [], [refinement])
+  const [rejected, setRejected] = useState<Set<number>>(new Set())
+  const [withStyle, setWithStyle] = useState(true)
+  const [withTerms, setWithTerms] = useState(true)
+  if (!refinement) return null
+
+  const chosenWords = wordFixes.filter((fix) => !rejected.has(fix.start))
+  const chosen = [...chosenWords, ...(withStyle ? styleFixes : [])].sort((a, b) => a.start - b.start)
+  const terms = newDictionaryTerms(chosenWords, dictionary, refinement.terms)
+  const toggle = (start: number) => setRejected((current) => {
+    const next = new Set(current)
+    if (!next.delete(start)) next.add(start)
+    return next
+  })
+  const close = () => useStore.getState().dismissRefinement()
+  const context = (from: number, to: number) => words.slice(Math.max(0, from), Math.max(0, to)).map((word) => word.text).join(' ')
+
+  return (
+    <Dialog
+      title="영어 대사 다듬기"
+      description="Agent가 영상 전체 내용을 파악한 뒤 잘못 들린 단어와 빠진 문장부호를 찾았습니다. 단어의 시간은 그대로 두고 글자만 고칩니다."
+      onClose={close}
+      className="modal-wide"
+      footer={<button className="primary" disabled={chosen.length === 0 && !(withTerms && terms.length > 0)}
+        onClick={() => useStore.getState().applyRefinement(chosen, withTerms ? terms : [])}>
+        적용 ({chosen.length}곳)
+      </button>}
+    >
+      <div className="dialog-stack">
+        <div className="stats-grid">
+          <div className="stat-card"><span className="stat-label">단어 교정</span><span className="stat-value">{chosenWords.length} / {wordFixes.length}개</span></div>
+          <div className="stat-card"><span className="stat-label">문장부호·대소문자</span><span className="stat-value">{styleFixes.length}곳</span></div>
+          <div className={'stat-card ' + (refinement.dropped + refinement.failed ? 'warning' : '')}>
+            <span className="stat-label">제외한 제안</span><span className="stat-value">{refinement.dropped}개</span>
+          </div>
+        </div>
+        {refinement.failed > 0 && <p className="note" role="status">응답을 받지 못한 구간 {refinement.failed}곳은 인식된 그대로 둡니다.</p>}
+        {refinement.dropped > 0 && <p className="note">원문과 맞지 않거나 단어를 지우는 제안 {refinement.dropped}개는 미리 걸러냈습니다.</p>}
+
+        {wordFixes.length > 0 && <section className="refine-section">
+          <div className="refine-heading">
+            <h3>잘못 들린 단어 ({wordFixes.length})</h3>
+            <div className="refine-bulk">
+              <button className="quiet" onClick={() => setRejected(new Set())}>모두 선택</button>
+              <button className="quiet" onClick={() => setRejected(new Set(wordFixes.map((fix) => fix.start)))}>모두 해제</button>
+            </div>
+          </div>
+          <ul className="refine-list" aria-label="단어 교정 목록">
+            {wordFixes.map((fix) => <li key={fix.start}>
+              <label className={'refine-item' + (rejected.has(fix.start) ? ' off' : '')}>
+                <input type="checkbox" checked={!rejected.has(fix.start)} onChange={() => toggle(fix.start)} />
+                <span className="refine-time">{formatTimecode(words[fix.start].start)}</span>
+                <span className="refine-change">
+                  <del>{fix.original}</del><span aria-hidden="true">→</span><ins>{fix.text}</ins>
+                </span>
+                <span className="refine-context">
+                  …{context(fix.start - CONTEXT_WORDS, fix.start)} <mark>{fix.original}</mark> {context(fix.end, fix.end + CONTEXT_WORDS)}…
+                </span>
+              </label>
+            </li>)}
+          </ul>
+        </section>}
+
+        {styleFixes.length > 0 && <section className="refine-section">
+          <label className="check">
+            <input type="checkbox" checked={withStyle} onChange={(event) => setWithStyle(event.target.checked)} />
+            문장부호·대소문자 {styleFixes.length}곳 함께 적용
+          </label>
+          <p className="note refine-samples">
+            {styleFixes.slice(0, 4).map((fix) => <span key={fix.start}><del>{fix.original}</del> → <ins>{fix.text}</ins></span>)}
+            {styleFixes.length > 4 && <span>외 {styleFixes.length - 4}곳</span>}
+          </p>
+          <p className="note">문장 끝 마침표가 채워지면 문장으로 묶기가 문장을 제대로 나눌 수 있습니다.</p>
+        </section>}
+
+        {terms.length > 0 && <label className="check">
+          <input type="checkbox" checked={withTerms} onChange={(event) => setWithTerms(event.target.checked)} />
+          <span>교정한 용어를 단어 사전에 추가: <strong>{terms.join(', ')}</strong></span>
+        </label>}
+      </div>
     </Dialog>
   )
 }
@@ -497,5 +661,6 @@ export function Dialogs() {
   if (dialog === 'dictionary') return <DictionaryDialog />
   if (dialog === 'export') return <ExportDialog />
   if (dialog === 'agentTranslate') return <AgentTranslateDialog />
+  if (dialog === 'refine') return <RefineDialog />
   return null
 }

@@ -2,12 +2,13 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { validateProject } from '../../shared/project'
-import type { Api, ImportProgress, MediaInfo, OpenedProject, SavedProject, SttEvent, TranslateProgress } from '../../shared/types'
+import type { Api, ImportProgress, MediaInfo, OpenedProject, RefineProgress, SavedProject, SttEvent, TranslateProgress } from '../../shared/types'
 
 const sttListeners = new Set<(event: SttEvent) => void>()
 const progressListeners = new Set<(fraction: number) => void>()
 const importListeners = new Set<(event: ImportProgress) => void>()
 const translateListeners = new Set<(event: TranslateProgress) => void>()
+const refineListeners = new Set<(event: RefineProgress) => void>()
 const closeListeners = new Set<() => void>()
 const subscribe = <T>(listeners: Set<T>, listener: T) => {
   listeners.add(listener)
@@ -56,6 +57,11 @@ export const api: Api = {
   onTranslateProgress: (listener) => subscribe(translateListeners, listener),
   onProgress: (listener) => subscribe(progressListeners, listener),
   sentenceBoundaries: (words) => invoke('sentence_boundaries', { words }),
+  agentSplitSentences: (request) => invoke('agent_split_sentences', { request }),
+  cancelAgentSplit: () => invoke('cancel_agent_split'),
+  startAgentRefine: (request) => invoke('start_agent_refine', { request }),
+  cancelAgentRefine: () => invoke('cancel_agent_refine'),
+  onRefineProgress: (listener) => subscribe(refineListeners, listener),
   listFonts: () => invoke('list_fonts'),
   onCloseRequested: (listener) => subscribe(closeListeners, listener),
   closeWindow: () => invoke('close_window')
@@ -68,6 +74,7 @@ export async function initializeNativeApi(): Promise<void> {
     listen<number>('progress', ({ payload }) => progressListeners.forEach((listener) => listener(payload))),
     listen<ImportProgress>('import-progress', ({ payload }) => importListeners.forEach((listener) => listener(payload))),
     listen<TranslateProgress>('translate-progress', ({ payload }) => translateListeners.forEach((listener) => listener(payload))),
+    listen<RefineProgress>('refine-progress', ({ payload }) => refineListeners.forEach((listener) => listener(payload))),
     getCurrentWindow().onCloseRequested((event) => {
       if (closeListeners.size === 0) return
       event.preventDefault()

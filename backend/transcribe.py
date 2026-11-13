@@ -74,7 +74,7 @@ def is_gpu_failure(error):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("input")
-    parser.add_argument("--model", default="large-v3-turbo")
+    parser.add_argument("--model", default="large-v3")
     parser.add_argument("--language", default="en")
     parser.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"])
     parser.add_argument("--hotwords", default="")

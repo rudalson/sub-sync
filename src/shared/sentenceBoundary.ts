@@ -1,4 +1,4 @@
-import type { Clip, Word } from './types'
+import type { Clip, SentenceSplitRequest, SentenceSplitResult, Word } from './types'
 import { joinWords } from './segment'
 
 export interface UncertaintyReason {
@@ -77,11 +77,69 @@ export function detectUncertainties(text: string, words: Word[], options: Senten
   if (maxPause >= (options.pauseThreshold ?? 2)) {
     reasons.push({ type: 'long-pause', message: '문장 내 긴 침묵(' + maxPause.toFixed(1) + '초)이 포함되어 있습니다.' })
   }
-  const duration = words.length ? words.at(-1)!.end - words[0].start : 0
-  if (duration >= (options.maxDurationThreshold ?? 15) || words.length >= (options.maxWordsThreshold ?? 40)) {
+  if (isTooLong(words, options)) {
+    const duration = words.at(-1)!.end - words[0].start
     reasons.push({ type: 'too-long', message: '구간이 지나치게 깁니다 (' + words.length + '단어, ' + duration.toFixed(1) + '초).' })
   }
   return reasons
+}
+
+function isTooLong(words: Word[], options: SentenceBoundaryOptions) {
+  const duration = words.length ? words.at(-1)!.end - words[0].start : 0
+  return duration >= (options.maxDurationThreshold ?? 15) || words.length >= (options.maxWordsThreshold ?? 40)
+}
+
+/** Over this many words the agent also splits a sentence at a clause boundary. */
+export const AGENT_SPLIT_MAX_WORDS = 25
+/** A gap this long between words is shown to the agent as a hint, never used as a cut. */
+const AGENT_PAUSE_HINT = 0.3
+
+/** Words `start` (inclusive) to `end` (exclusive) of the full word list. */
+export interface WordSpan {
+  start: number
+  end: number
+}
+
+/** The sentences the review marks too long: usually ones pySBD could not split for lack of full stops. */
+export function longSentenceSpans(words: Word[], ends: readonly number[], options: SentenceBoundaryOptions = {}): WordSpan[] {
+  validateSentenceEnds(words.length, ends)
+  const spans: WordSpan[] = []
+  let start = 0
+  for (const end of ends) {
+    if (end - start > 1 && isTooLong(words.slice(start, end), options)) spans.push({ start, end })
+    start = end
+  }
+  return spans
+}
+
+/** Only the word texts and pause positions leave the editor; ids are the spans' positions, from 1. */
+export function agentSplitRequest(words: Word[], spans: WordSpan[], maxWords = AGENT_SPLIT_MAX_WORDS): SentenceSplitRequest {
+  return {
+    maxWords,
+    spans: spans.map(({ start, end }, index) => {
+      const slice = words.slice(start, end)
+      const pauses: number[] = []
+      for (let i = 1; i < slice.length; i++) {
+        if (slice[i].start - slice[i - 1].end >= AGENT_PAUSE_HINT) pauses.push(i)
+      }
+      return { id: index + 1, words: slice.map((word) => word.text), pauses }
+    })
+  }
+}
+
+/** Adds the agent's cuts inside each span to the sentence ends, checking every answer again first. */
+export function mergeSplitEnds(ends: readonly number[], spans: WordSpan[], results: SentenceSplitResult[]): number[] {
+  const byId = new Map(results.map((result) => [result.id, result.ends]))
+  const cuts = new Set(ends)
+  spans.forEach(({ start, end }, index) => {
+    const local = byId.get(index + 1)
+    if (!local) throw new Error('Agent 결과에 빠진 문장이 있습니다.')
+    validateSentenceEnds(end - start, local)
+    for (const cut of local) cuts.add(start + cut)
+  })
+  const merged = [...cuts].sort((a, b) => a - b)
+  validateSentenceEnds(ends.at(-1) ?? 0, merged)
+  return merged
 }
 
 function sentenceFromWords(words: Word[], options: SentenceBoundaryOptions): ReconstructedSentence {

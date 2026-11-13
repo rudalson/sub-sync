@@ -4,6 +4,8 @@ mod download;
 mod files;
 mod fonts;
 mod project;
+mod refine;
+mod sentence_agent;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -73,6 +75,10 @@ pub fn run() {
             commands::cancel_export,
             commands::start_agent_translate,
             commands::cancel_agent_translate,
+            commands::agent_split_sentences,
+            commands::cancel_agent_split,
+            commands::start_agent_refine,
+            commands::cancel_agent_refine,
             commands::close_window
         ])
         .build(tauri::generate_context!())

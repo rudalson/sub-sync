@@ -1,7 +1,7 @@
 import { PEAKS_PER_SECOND, type Clip, type ProjectFile, type SavedProject, type Settings, type Word } from './types'
 
 export const DEFAULT_SETTINGS: Settings = {
-  stt: { model: 'large-v3-turbo', language: 'en', device: 'auto' },
+  stt: { model: 'large-v3', language: 'en', device: 'auto' },
   segment: { maxChars: 84, maxDuration: 8, splitOnSentence: true, maxGap: 0.8 },
   style: { font: 'Malgun Gothic', weight: 700, sizePct: 5, marginPct: 6, box: true },
   dictionary: ''

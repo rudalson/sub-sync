@@ -13,7 +13,10 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{atomic::Ordering, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread,
 };
 
@@ -21,7 +24,7 @@ use std::{
 pub const CHUNK_SIZE: usize = 40;
 /// Already-translated cues shown before each chunk so sentences and terms carry over.
 const CONTEXT_CUES: usize = 3;
-const ATTEMPTS: usize = 3;
+pub(crate) const ATTEMPTS: usize = 3;
 const CHUNK_TIMEOUT: &str = "600s";
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -194,20 +197,20 @@ pub fn find_agy_executable(state: &Backend) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("agy"))
 }
 
-enum Failure {
+pub(crate) enum Failure {
     /// Stop now: cancelled, or the CLI cannot run at all.
     Stop(String),
     /// The answer was unusable; asking again may work.
     Retry(String),
 }
 
-/// An empty folder the agent runs in, removed afterwards.
-struct Workspace(PathBuf);
+/// An empty folder the agent runs in, holding only the answer schema; removed afterwards.
+pub(crate) struct Workspace(pub(crate) PathBuf);
 impl Workspace {
-    fn new() -> Result<Self, String> {
+    pub(crate) fn new(schema: &str) -> Result<Self, String> {
         let dir = std::env::temp_dir().join(format!("sub-sync-agent-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        fs::write(dir.join("schema.json"), SCHEMA).map_err(|e| e.to_string())?;
+        fs::write(dir.join("schema.json"), schema).map_err(|e| e.to_string())?;
         Ok(Self(dir))
     }
 }
@@ -217,12 +220,58 @@ impl Drop for Workspace {
     }
 }
 
+/// The one agent slot: translation and sentence splitting never run the CLI at the same time.
+pub(crate) struct AgentJob<'a> {
+    state: &'a Backend,
+    id: uuid::Uuid,
+    pub(crate) cancel: Arc<AtomicBool>,
+}
+impl<'a> AgentJob<'a> {
+    pub(crate) fn begin(state: &'a Backend) -> Result<Self, String> {
+        let (id, cancel) = backend::begin(&state.translate)?;
+        Ok(Self { state, id, cancel })
+    }
+}
+impl Drop for AgentJob<'_> {
+    fn drop(&mut self) {
+        backend::finish(&self.state.translate, self.id);
+    }
+}
+
+/// Asks until `check` accepts an answer, at most ATTEMPTS times; stops at once when cancelled
+/// or when the CLI cannot run. A final `Failure::Retry` carries the last rejection.
+pub(crate) fn ask<T>(
+    state: &Backend,
+    exe: &Path,
+    workspace: &Path,
+    prompt: &str,
+    cancel: &AtomicBool,
+    mut on_attempt: impl FnMut(usize),
+    check: impl Fn(&Value) -> Result<T, String>,
+) -> Result<T, Failure> {
+    let mut last_error = String::new();
+    for attempt in 1..=ATTEMPTS {
+        if cancel.load(Ordering::Relaxed) || state.shutdown.load(Ordering::Relaxed) {
+            return Err(Failure::Stop("작업을 취소했습니다.".into()));
+        }
+        on_attempt(attempt);
+        match run_agent(state, exe, workspace, prompt, cancel)
+            .and_then(|answer| check(&answer).map_err(Failure::Retry))
+        {
+            Ok(value) => return Ok(value),
+            Err(Failure::Stop(error)) => return Err(Failure::Stop(error)),
+            Err(Failure::Retry(error)) => last_error = error,
+        }
+    }
+    Err(Failure::Retry(last_error))
+}
+
 fn run_agent(
     state: &Backend,
     exe: &Path,
     workspace: &Path,
     prompt: &str,
-    cancel: &std::sync::atomic::AtomicBool,
+    cancel: &AtomicBool,
 ) -> Result<Value, Failure> {
     let mut command = backend::command(exe);
     command
@@ -306,16 +355,8 @@ pub fn translate_with(
     if request.cues.is_empty() {
         return Err("번역할 영어 자막이 없습니다.".into());
     }
-    let (job_id, cancel) = backend::begin(&state.translate)?;
-    struct Finish<'a>(&'a Backend, uuid::Uuid);
-    impl Drop for Finish<'_> {
-        fn drop(&mut self) {
-            backend::finish(&self.0.translate, self.1);
-        }
-    }
-    let _finish = Finish(&state, job_id);
-
-    let workspace = Workspace::new()?;
+    let job = AgentJob::begin(&state)?;
+    let workspace = Workspace::new(SCHEMA)?;
     let total = request.cues.len();
     let mut done: HashMap<u32, String> = request
         .done
@@ -342,12 +383,8 @@ pub fn translate_with(
         let prompt = build_prompt(&chunk, &context, &request.glossary);
 
         let (first, last) = (batch[0] + 1, batch[batch.len() - 1] + 1);
-        let mut last_error = String::new();
-        let mut translated = None;
-        for attempt in 1..=ATTEMPTS {
-            if cancel.load(Ordering::Relaxed) || state.shutdown.load(Ordering::Relaxed) {
-                return Err("작업을 취소했습니다.".into());
-            }
+        let progress = Some(done.len() as f64 / total as f64);
+        let attempt = |attempt: usize| {
             let retry = if attempt > 1 {
                 format!(" · 재시도 {}", attempt - 1)
             } else {
@@ -355,24 +392,26 @@ pub fn translate_with(
             };
             on_progress(TranslateProgress {
                 label: format!("Agent 번역 중 · {first}–{last} / {total}{retry}"),
-                progress: Some(done.len() as f64 / total as f64),
+                progress,
                 translations: Vec::new(),
             });
-            match run_agent(&state, exe, &workspace.0, &prompt, &cancel)
-                .and_then(|answer| accept(&answer, &chunk).map_err(Failure::Retry))
-            {
-                Ok(lines) => {
-                    translated = Some(lines);
-                    break;
-                }
-                Err(Failure::Stop(error)) => return Err(error),
-                Err(Failure::Retry(error)) => last_error = error,
+        };
+        let lines = match ask(
+            &state,
+            exe,
+            &workspace.0,
+            &prompt,
+            &job.cancel,
+            attempt,
+            |answer| accept(answer, &chunk),
+        ) {
+            Ok(lines) => lines,
+            Err(Failure::Stop(error)) => return Err(error),
+            Err(Failure::Retry(error)) => {
+                return Err(format!(
+                    "{first}–{last}번 자막을 {ATTEMPTS}번 시도했지만 번역하지 못했습니다: {error}"
+                ))
             }
-        }
-        let Some(lines) = translated else {
-            return Err(format!(
-                "{first}–{last}번 자막을 {ATTEMPTS}번 시도했지만 번역하지 못했습니다: {last_error}"
-            ));
         };
         for line in &lines {
             done.insert(line.id, line.text.clone());

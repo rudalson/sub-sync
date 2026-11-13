@@ -22,6 +22,7 @@ import {
   stripExtension
 } from '../../shared/pipeline'
 import { DEFAULT_SETTINGS } from '../../shared/project'
+import { addDictionaryTerms, applyCorrections, describeCorrections, refineRequest, type Correction } from '../../shared/refine'
 import { joinWords, segmentWords } from '../../shared/segment'
 import type { SentenceBoundaryOptions } from '../../shared/sentenceBoundary'
 import { serializeSrt } from '../../shared/srt'
@@ -56,7 +57,18 @@ export function resumableTranslations(cues: TranslateCue[]): number {
   return translationDraft?.key === JSON.stringify(cues) ? translationDraft.done.size : 0
 }
 
-export type DialogName = 'import' | 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary' | 'agentTranslate'
+export type DialogName = 'import' | 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary' | 'agentTranslate' | 'refine'
+
+/** Corrections the agent proposed for `source`, waiting for review. */
+export interface Refinement {
+  source: Clip[]
+  corrections: Correction[]
+  /** Terms the agent found the video uses. */
+  terms: string[]
+  /** Edits dropped as unusable, here or by the agent's checks, and stretches left unchecked. */
+  dropped: number
+  failed: number
+}
 
 interface Job {
   label: string
@@ -88,6 +100,7 @@ interface State {
   message: string | null
   dragHint: DragHint | null
   follow: boolean
+  refinement: Refinement | null
 
   init(): Promise<void>
   setDialog(dialog: DialogName | null): void
@@ -109,6 +122,11 @@ interface State {
   applyDictionaryNow(): void
   exportVideo(): Promise<void>
   startAgentTranslate(): Promise<void>
+  /** Asks the agent to correct the recognised English; the result opens for review. */
+  startRefine(): Promise<void>
+  /** Applies the chosen corrections as one undo step and adds `terms` to the word dictionary. */
+  applyRefinement(chosen: Correction[], terms: string[]): void
+  dismissRefinement(): void
 
   beginEdit(): void
   undo(): void
@@ -182,7 +200,8 @@ export const useStore = create<State>((set, get) => {
         follow: playback.follow,
         dialog: null,
         dragHint: null,
-        message: project ? '프로젝트를 복원했습니다. 음성 인식 없이 편집을 이어갈 수 있습니다.' : null
+        refinement: null,
+        message: project ?'프로젝트를 복원했습니다. 음성 인식 없이 편집을 이어갈 수 있습니다.' : null
       })
     } finally {
       restoringProject = false
@@ -208,20 +227,21 @@ export const useStore = create<State>((set, get) => {
     }
   }
 
-  async function runTranscription() {
+  /** Resolves true when English speech was recognised, which the English clean-up then follows. */
+  async function runTranscription(): Promise<boolean> {
     const { media, settings, clips } = get()
-    if (!media) return
+    if (!media) return false
     const { hotwords } = parseDictionary(settings.dictionary)
     const words: Word[] = []
 
-    await new Promise<void>((resolve) => {
+    return new Promise<boolean>((resolve) => {
       let finished = false
-      const finish = (message: string | null = null) => {
+      const finish = (message: string | null = null, english = false) => {
         if (finished) return
         finished = true
         unsubscribe()
         set({ job: null, message })
-        resolve()
+        resolve(english)
       }
       const cancel = () => {
         void api.cancelStt()
@@ -249,7 +269,7 @@ export const useStore = create<State>((set, get) => {
           case 'done': {
             const next = clipsFromTranscript(words, clips, get().settings)
             commit(next)
-            finish(`자막 ${next.length}개 생성 완료 (${event.device === 'cuda' ? 'GPU' : 'CPU'})`)
+            finish(`자막 ${next.length}개 생성 완료 (${event.device === 'cuda' ? 'GPU' : 'CPU'})`, event.language === 'en' && words.length > 0)
             break
           }
         }
@@ -277,6 +297,7 @@ export const useStore = create<State>((set, get) => {
     message: null,
     dragHint: null,
     follow: true,
+    refinement: null,
 
     async init() {
       const saved = await api.loadSettings()
@@ -465,7 +486,8 @@ export const useStore = create<State>((set, get) => {
         const proceed = await api.confirm('음성 인식을 다시 실행할까요?', '현재 자막은 새 인식 결과로 바뀝니다. 실행 취소로 되돌릴 수 있습니다.')
         if (!proceed) return
       }
-      await runTranscription()
+      // Recognised English goes straight on to the agent's clean-up, while the talk is fresh to review.
+      if (await runTranscription()) await get().startRefine()
     },
 
     async recut() {
@@ -575,6 +597,65 @@ export const useStore = create<State>((set, get) => {
         if (get().mediaSession === mediaSession) set({ job: null })
       }
     },
+
+    async startRefine() {
+      const { media, clips, job, settings, mediaSession } = get()
+      if (job || !media) return
+      const request = refineRequest(clips, media.path, settings.dictionary)
+      if (request.words.length === 0) {
+        set({ message: '단어 정보가 없어 영어 대사를 다듬을 수 없습니다. 음성 인식을 먼저 실행해 주세요.' })
+        return
+      }
+      const unsubscribe = api.onRefineProgress((event) => {
+        if (get().mediaSession !== mediaSession) return
+        set((state) => (state.job ? { job: { ...state.job, label: event.label, progress: event.progress } } : {}))
+      })
+      let cancelled = false
+      const cancel = () => {
+        cancelled = true
+        void api.cancelAgentRefine()
+      }
+      set({ dialog: null, refinement: null, job: { label: '영어 다듬기 준비 중', progress: null, cancel } })
+      try {
+        const result = await api.startAgentRefine(request)
+        if (get().mediaSession !== mediaSession) return
+        const { corrections, skipped } = describeCorrections(clips, result.edits)
+        const unchecked = result.failed > 0 ? ` 일부 구간(${result.failed}곳)은 응답을 받지 못해 그대로 두었습니다.` : ''
+        if (corrections.length === 0) {
+          set({ message: `영어 다듬기: 고칠 곳을 찾지 못했습니다.${unchecked}` })
+          return
+        }
+        set({
+          refinement: { source: clips, corrections, terms: result.terms, dropped: result.rejected + skipped, failed: result.failed },
+          dialog: 'refine'
+        })
+      } catch (error) {
+        if (get().mediaSession !== mediaSession) return
+        set({
+          message: cancelled
+            ? '영어 다듬기를 취소했습니다. 자막은 인식된 그대로입니다.'
+            : `영어 다듬기 실패: ${errorText(error)} 자막은 인식된 그대로 두었습니다.`
+        })
+      } finally {
+        unsubscribe()
+        if (get().mediaSession === mediaSession) set({ job: null })
+      }
+    },
+
+    applyRefinement(chosen, terms) {
+      const { refinement, clips, settings } = get()
+      if (!refinement) return
+      if (clips !== refinement.source) {
+        set({ refinement: null, dialog: null, message: '교정을 검토하는 동안 자막이 바뀌어 적용하지 않았습니다. 영어 다듬기를 다시 실행해 주세요.' })
+        return
+      }
+      if (chosen.length > 0) commit(applyCorrections(clips, chosen))
+      if (terms.length > 0) get().updateSettings({ dictionary: addDictionaryTerms(settings.dictionary, terms) })
+      const added = terms.length > 0 ? `, 단어 사전에 용어 ${terms.length}개 추가` : ''
+      set({ refinement: null, dialog: null, message: `영어 대사 ${chosen.length}곳을 다듬었습니다${added}.` })
+    },
+
+    dismissRefinement: () => set({ refinement: null, dialog: null }),
 
     beginEdit: () => set((state) => ({ past: [...state.past, state.clips].slice(-HISTORY_LIMIT), future: [] })),
 

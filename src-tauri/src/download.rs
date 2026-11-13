@@ -49,6 +49,8 @@ fn configure(command: &mut Command, state: &Backend, url: &str, target: &Path) {
             r#"download:sub-sync:{"type":"progress","downloaded":%(progress.downloaded_bytes)j,"total":%(progress.total_bytes,progress.total_bytes_estimate)j,"status":%(progress.status)j}"#,
             "--progress-template", r#"postprocess:sub-sync:{"type":"processing"}"#,
             "--print", r#"after_move:sub-sync:{"type":"done","path":%(filepath)j,"id":%(id)j}"#,
+            // Separate from "done", so a field yt-dlp cannot fill never costs the downloaded path.
+            "--print", r#"after_move:sub-sync-info:%(.{title,channel,description,tags,chapters})j"#,
         ])
         .arg("--paths")
         .arg(format!("home:{}", target.display()));
@@ -101,11 +103,20 @@ fn spawn(state: &Backend, url: &str, target: &Path) -> Result<Child, String> {
 struct Output {
     path: Option<PathBuf>,
     video_id: Option<String>,
+    /// Title, channel, description, tags and chapters: hints for the English clean-up agent.
+    info: Option<Value>,
     errors: VecDeque<String>,
 }
 impl Output {
     fn line(&mut self, line: &str, progress: &impl Fn(ImportProgress)) {
-        if let Some(event) = line
+        if let Some(info) = line.strip_prefix("sub-sync-info:") {
+            if let Some(info) = serde_json::from_str::<Value>(info)
+                .ok()
+                .filter(Value::is_object)
+            {
+                self.info = Some(info);
+            }
+        } else if let Some(event) = line
             .strip_prefix("sub-sync:")
             .and_then(|text| serde_json::from_str::<Value>(text).ok())
         {
@@ -169,6 +180,13 @@ fn same_contents(source: &Path, target: &Path) -> io::Result<bool> {
         source.consume(count);
         target.consume(count);
     }
+}
+
+/// `<video stem>.info.json` beside the video, as yt-dlp names its own info files.
+pub(crate) fn info_path(video: &Path) -> PathBuf {
+    let mut name = video.file_stem().unwrap_or_default().to_os_string();
+    name.push(".info.json");
+    video.with_file_name(name)
 }
 
 /// Remove only the ID appended by our download template; brackets in the actual title survive.
@@ -278,6 +296,10 @@ pub fn import_video(
         }
         let path = finalize_filename(&path, video_id.as_deref())
             .map_err(|error| format!("다운로드한 영상의 파일명을 정리할 수 없습니다: {error}"))?;
+        if let Some(info) = output.info.or(errors.info) {
+            // Only a hint for later; a video without it still opens and transcribes.
+            let _ = fs::write(info_path(&path), info.to_string());
+        }
         state.allow(&path)?;
         Ok(path.to_string_lossy().into_owned())
     })();
@@ -392,5 +414,22 @@ mod tests {
         assert_eq!(events.lock().unwrap()[1].progress, None);
         assert_eq!(events.lock().unwrap()[2].label, "영상 파일 준비 중");
         assert_eq!(output.path, Some(PathBuf::from("C:\\영상\\제목 [id].mp4")));
+    }
+
+    #[test]
+    fn video_info_is_kept_apart_from_the_download_result() {
+        let mut output = Output::default();
+        let emit = |_| {};
+        output.line(
+            r#"sub-sync-info:{"title":"Pi Agent","chapters":[{"title":"Setup","start_time":0}]}"#,
+            &emit,
+        );
+        output.line("sub-sync-info:NA", &emit);
+        assert_eq!(output.info.as_ref().unwrap()["title"], "Pi Agent");
+        assert!(output.errors.is_empty() && output.path.is_none());
+        assert_eq!(
+            info_path(Path::new(r"C:\영상\Pi Agent (2).mp4")),
+            PathBuf::from(r"C:\영상\Pi Agent (2).info.json")
+        );
     }
 }

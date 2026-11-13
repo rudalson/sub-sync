@@ -118,6 +118,32 @@ describe('Tauri frontend bridge', () => {
     mocks.invoke.mockRejectedValue(new Error('pySBD is missing'))
     await expect(api.sentenceBoundaries(words)).rejects.toThrow('pySBD')
   })
+  it('forwards the English clean-up, its cancel and its progress', async () => {
+    await initializeNativeApi()
+    const request = { mediaPath: 'C:\\v\\talk.mp4', words: ['Cloud', 'Code'], uncertain: [0], glossary: [] }
+    const result = { edits: [{ start: 0, end: 2, text: 'Claude Code' }], terms: ['Claude Code'], rejected: 0, failed: 0 }
+    mocks.invoke.mockResolvedValueOnce(result)
+    expect(await api.startAgentRefine(request)).toEqual(result)
+    expect(mocks.invoke).toHaveBeenLastCalledWith('start_agent_refine', { request })
+    mocks.invoke.mockResolvedValueOnce(undefined)
+    await api.cancelAgentRefine()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('cancel_agent_refine')
+
+    const progress = vi.fn()
+    const unsubscribe = api.onRefineProgress(progress)
+    mocks.events.get('refine-progress')!({ payload: { label: '영어 다듬기 · 교정 중 1/3', progress: 0.5 } })
+    expect(progress).toHaveBeenCalledWith({ label: '영어 다듬기 · 교정 중 1/3', progress: 0.5 })
+    unsubscribe()
+  })
+  it('forwards agent sentence splitting and its cancel to the native commands', async () => {
+    const request = { spans: [{ id: 1, words: ['so', 'proud', 'that', 'was', 'it'], pauses: [2] }], maxWords: 25 }
+    mocks.invoke.mockResolvedValueOnce([{ id: 1, ends: [2, 5] }])
+    expect(await api.agentSplitSentences(request)).toEqual([{ id: 1, ends: [2, 5] }])
+    expect(mocks.invoke).toHaveBeenLastCalledWith('agent_split_sentences', { request })
+    mocks.invoke.mockResolvedValueOnce(undefined)
+    await api.cancelAgentSplit()
+    expect(mocks.invoke).toHaveBeenLastCalledWith('cancel_agent_split')
+  })
   it('forwards agent translation commands and translates progress', async () => {
     await initializeNativeApi()
     const request = { cues: [{ id: 1, text: 'Hello' }], done: [], glossary: ['RESTful'] }

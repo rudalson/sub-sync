@@ -98,7 +98,7 @@ describe('command line', () => {
     writeFileSync(join(folder, 'dict.txt'), 'rest full => RESTful\n')
     const code = await run('transcribe', video, '-o', join(folder, 'en.srt'), '--dict', join(folder, 'dict.txt'), '--device', 'cpu', '--max-chars', '40')
     expect(code, stderr).toBe(EXIT.ok)
-    expect(runtime.transcribe.mock.calls[0][1]).toEqual({ model: 'large-v3-turbo', language: 'en', device: 'cpu' })
+    expect(runtime.transcribe.mock.calls[0][1]).toEqual({ model: 'large-v3', language: 'en', device: 'cpu' })
     expect(runtime.transcribe.mock.calls[0][2]).toBe('RESTful')
 
     const project = readJson(join(folder, 'lecture.subsync'))
