@@ -4,6 +4,9 @@ import koreanFlag from '../assets/flags/kr.svg'
 import { useStore } from '../store'
 import { SaveControl } from './SaveControl'
 
+/** Windows paths compare without case and with either slash. */
+const samePath = (a: string, b: string) => a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase()
+
 const subtitleLanguages: Record<string, { label: string; flag: string }> = {
   en: { label: '영어', flag: englishFlag },
   eng: { label: '영어', flag: englishFlag },
@@ -19,6 +22,9 @@ export function Toolbar() {
   const canUndo = useStore((state) => state.past.length > 0)
   const canRedo = useStore((state) => state.future.length > 0)
   const projectSubtitles = useStore((state) => state.projectSubtitles)
+  // The loaded subtitle is also where SRT 저장 writes, so its flag shows which language is being edited.
+  const srtPath = useStore((state) => state.srtPath)
+  const currentSubtitle = srtPath === null ? undefined : projectSubtitles.find((subtitle) => samePath(subtitle.path, srtPath))
   const busy = useStore((state) => state.job !== null)
   const name = (projectPath ?? media?.path)?.split(/[\\/]/).pop() ?? '새 프로젝트'
   // Before a video is open the empty state already says how to start; the header does not repeat it.
@@ -93,18 +99,24 @@ export function Toolbar() {
                 const language = subtitleLanguages[subtitle.language?.split('-')[0] ?? '']
                 const label = language?.label ?? subtitle.language?.toUpperCase() ?? '기본'
                 const filename = subtitle.path.split(/[\\/]/).pop()
+                const current = subtitle === currentSubtitle
+                const state = current ? 'current' : currentSubtitle ? 'other' : 'idle'
                 return (
                   <button
                     key={subtitle.path}
-                    className="quiet project-subtitle-button"
+                    className={`quiet project-subtitle-button ${state}`}
                     disabled={busy}
-                    title={`${label} 자막 불러오기\n${subtitle.path}`}
-                    aria-label={`${label} 자막 불러오기 (${filename})`}
+                    aria-pressed={current}
+                    title={current
+                      ? `${label} 자막 편집 중 · SRT 저장 시 이 파일에 저장됩니다\n${subtitle.path}\n누르면 다시 불러옵니다`
+                      : `${label} 자막 불러오기\n${subtitle.path}`}
+                    aria-label={current ? `${label} 자막 편집 중 (${filename}), 누르면 다시 불러오기` : `${label} 자막 불러오기 (${filename})`}
                     onClick={() => void useStore.getState().loadSrt(subtitle.path)}
                   >
                     {language
                       ? <img className="subtitle-flag" src={language.flag} width={24} height={16} alt="" aria-hidden="true" />
                       : <span className="subtitle-language" aria-hidden="true">{subtitle.language?.toUpperCase() ?? 'SRT'}</span>}
+                    {current && <span className="subtitle-current-label" aria-hidden="true">{label}</span>}
                   </button>
                 )
               })}

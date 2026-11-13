@@ -132,7 +132,14 @@ kbd {
 .command-bar button { color: var(--text-strong); }
 .secondary-tools { gap: 4px; flex-wrap: wrap; }
 .project-subtitles { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
-.toolbar .project-subtitle-button { min-width: 36px; padding-inline: 6px; }
+.toolbar .project-subtitle-button { min-width: 36px; padding-inline: 6px; gap: 6px; transition: background-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease, filter 160ms ease; }
+/* The subtitle being edited (and written by SRT 저장) is lit; the other languages step back until hovered */
+.toolbar .project-subtitle-button.current { padding-inline: 8px 10px; background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); color: var(--accent-text); }
+.toolbar .project-subtitle-button.current:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.toolbar .project-subtitle-button.current .subtitle-flag { box-shadow: 0 0 0 1px rgba(255, 255, 255, .35); }
+.toolbar .project-subtitle-button.other { opacity: .45; filter: grayscale(.7); }
+.toolbar .project-subtitle-button.other:hover:not(:disabled), .toolbar .project-subtitle-button.other:focus-visible { opacity: 1; filter: none; }
+.subtitle-current-label { font-size: 13px; font-weight: 650; }
 .subtitle-flag { display: block; object-fit: contain; border-radius: 2px; }
 .subtitle-language { font: 600 11px/1 var(--mono); }
 .secondary-tools .save-control > button, .secondary-tools .save-menu summary { background: transparent; box-shadow: none; }
