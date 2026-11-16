@@ -76,7 +76,7 @@ export function Toolbar() {
             className="quiet"
             disabled={busy || !hasWords}
             onClick={() => void useStore.getState().startRefine()}
-            title="Antigravity Agent가 잘못 들린 단어와 빠진 문장부호를 찾아 고칩니다 (자막 생성 뒤 자동 실행)"
+            title="Antigravity Agent가 잘못 들린 단어와 빠진 문장부호를 찾아 고칩니다"
           >
             <WandSparkles size={16} aria-hidden="true" />영어 다듬기
           </button>

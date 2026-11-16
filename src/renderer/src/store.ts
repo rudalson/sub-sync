@@ -227,21 +227,20 @@ export const useStore = create<State>((set, get) => {
     }
   }
 
-  /** Resolves true when English speech was recognised, which the English clean-up then follows. */
-  async function runTranscription(): Promise<boolean> {
+  async function runTranscription(): Promise<void> {
     const { media, settings, clips } = get()
-    if (!media) return false
+    if (!media) return
     const { hotwords } = parseDictionary(settings.dictionary)
     const words: Word[] = []
 
-    return new Promise<boolean>((resolve) => {
+    return new Promise<void>((resolve) => {
       let finished = false
-      const finish = (message: string | null = null, english = false) => {
+      const finish = (message: string | null = null) => {
         if (finished) return
         finished = true
         unsubscribe()
         set({ job: null, message })
-        resolve(english)
+        resolve()
       }
       const cancel = () => {
         void api.cancelStt()
@@ -269,7 +268,7 @@ export const useStore = create<State>((set, get) => {
           case 'done': {
             const next = clipsFromTranscript(words, clips, get().settings)
             commit(next)
-            finish(`자막 ${next.length}개 생성 완료 (${event.device === 'cuda' ? 'GPU' : 'CPU'})`, event.language === 'en' && words.length > 0)
+            finish(`자막 ${next.length}개 생성 완료 (${event.device === 'cuda' ? 'GPU' : 'CPU'})`)
             break
           }
         }
@@ -486,8 +485,8 @@ export const useStore = create<State>((set, get) => {
         const proceed = await api.confirm('음성 인식을 다시 실행할까요?', '현재 자막은 새 인식 결과로 바뀝니다. 실행 취소로 되돌릴 수 있습니다.')
         if (!proceed) return
       }
-      // Recognised English goes straight on to the agent's clean-up, while the talk is fresh to review.
-      if (await runTranscription()) await get().startRefine()
+      // Recognition only: the English clean-up is its own toolbar command.
+      await runTranscription()
     },
 
     async recut() {
