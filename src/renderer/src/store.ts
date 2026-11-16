@@ -24,7 +24,13 @@ import {
 import { DEFAULT_SETTINGS } from '../../shared/project'
 import { addDictionaryTerms, applyCorrections, describeCorrections, refineRequest, type Correction } from '../../shared/refine'
 import { joinWords, segmentWords } from '../../shared/segment'
-import type { SentenceBoundaryOptions } from '../../shared/sentenceBoundary'
+import {
+  agentSplitRequest,
+  longSentenceSpans,
+  mergeSplitEnds,
+  validateSentenceEnds,
+  type SentenceBoundaryOptions
+} from '../../shared/sentenceBoundary'
 import { serializeSrt } from '../../shared/srt'
 import { closeSubtitleGaps } from '../../shared/timing'
 import { applyTranslations, glossaryTerms, translationCues, translationTarget } from '../../shared/translate'
@@ -57,7 +63,42 @@ export function resumableTranslations(cues: TranslateCue[]): number {
   return translationDraft?.key === JSON.stringify(cues) ? translationDraft.done.size : 0
 }
 
-export type DialogName = 'import' | 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary' | 'agentTranslate' | 'refine'
+export type DialogName = 'import' | 'oneShot' | 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary' | 'agentTranslate' | 'refine'
+
+/** How one step of work ended; `detail` is a short line for the one-shot checklist. */
+export interface StepEnd {
+  end: 'done' | 'failed' | 'cancelled' | 'skipped'
+  detail?: string
+}
+
+export type PipelineStepKey = 'import' | 'transcribe' | 'refine' | 'group' | 'translate'
+export type PipelineStepState = 'pending' | 'running' | StepEnd['end']
+
+export interface PipelineStep {
+  key: PipelineStepKey
+  label: string
+  state: PipelineStepState
+  detail?: string
+  startedAt?: number
+  endedAt?: number
+}
+
+/** The 영상 한번에 run: each toolbar step in order, shown as a checklist while it runs. */
+export interface Pipeline {
+  steps: PipelineStep[]
+  /** Set once the run stops, whether every step finished or not. */
+  outcome: 'done' | 'failed' | 'cancelled' | null
+}
+
+export const PIPELINE_STEPS: { key: PipelineStepKey; label: string }[] = [
+  { key: 'import', label: '영상 가져오기' },
+  { key: 'transcribe', label: '자막 생성' },
+  { key: 'refine', label: '영어 다듬기' },
+  { key: 'group', label: '문장으로 묶기' },
+  { key: 'translate', label: 'Agent 번역' }
+]
+
+const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path
 
 /** Corrections the agent proposed for `source`, waiting for review. */
 export interface Refinement {
@@ -101,6 +142,7 @@ interface State {
   dragHint: DragHint | null
   follow: boolean
   refinement: Refinement | null
+  pipeline: Pipeline | null
 
   init(): Promise<void>
   setDialog(dialog: DialogName | null): void
@@ -121,12 +163,19 @@ interface State {
   applySentenceBoundary(sourceClips: Clip[], sentenceEnds: number[], options?: SentenceBoundaryOptions): boolean
   applyDictionaryNow(): void
   exportVideo(): Promise<void>
-  startAgentTranslate(): Promise<void>
+  startAgentTranslate(): Promise<StepEnd>
   /** Asks the agent to correct the recognised English; the result opens for review. */
   startRefine(): Promise<void>
   /** Applies the chosen corrections as one undo step and adds `terms` to the word dictionary. */
   applyRefinement(chosen: Correction[], terms: string[]): void
   dismissRefinement(): void
+  /**
+   * 영상 한번에: imports the URL, then makes, cleans up, groups and translates its subtitles without stopping.
+   * The clean-up's corrections are all applied (each step stays one undo step); the agent splits sentences left too long.
+   */
+  runOneShot(url: string, targetDir: string): Promise<void>
+  /** Closes the checklist of a finished one-shot run. */
+  closePipeline(): void
 
   beginEdit(): void
   undo(): void
@@ -227,24 +276,26 @@ export const useStore = create<State>((set, get) => {
     }
   }
 
-  async function runTranscription(): Promise<void> {
+  /** Also tells the language Whisper heard, which decides whether the English steps can follow. */
+  async function runTranscription(): Promise<StepEnd & { language?: string }> {
     const { media, settings, clips } = get()
-    if (!media) return
+    if (!media) return { end: 'failed', detail: '열린 영상이 없습니다.' }
     const { hotwords } = parseDictionary(settings.dictionary)
     const words: Word[] = []
 
-    return new Promise<void>((resolve) => {
+    return new Promise((resolve) => {
       let finished = false
-      const finish = (message: string | null = null) => {
+      const finish = (message: string | null, result: StepEnd & { language?: string }) => {
         if (finished) return
         finished = true
         unsubscribe()
         set({ job: null, message })
-        resolve()
+        resolve(result)
       }
+      const fail = (message: string) => finish(`음성 인식 실패: ${message}`, { end: 'failed', detail: message })
       const cancel = () => {
         void api.cancelStt()
-        finish()
+        finish(null, { end: 'cancelled' })
       }
       const setJob = (label: string, progress: number | null) => set({ job: { label, progress, cancel } })
 
@@ -263,19 +314,159 @@ export const useStore = create<State>((set, get) => {
             words.length = 0
             break
           case 'error':
-            finish(`음성 인식 실패: ${event.message}`)
+            fail(event.message)
             break
           case 'done': {
             const next = clipsFromTranscript(words, clips, get().settings)
             commit(next)
-            finish(`자막 ${next.length}개 생성 완료 (${event.device === 'cuda' ? 'GPU' : 'CPU'})`)
+            const done = `자막 ${next.length}개 생성 완료 (${event.device === 'cuda' ? 'GPU' : 'CPU'})`
+            finish(done, { end: 'done', detail: done, language: event.language })
             break
           }
         }
       })
       setJob('음성 인식 준비 중', null)
-      void api.startStt(media.path, settings.stt, hotwords).catch((error) => finish(`음성 인식 실패: ${errorText(error)}`))
+      void api.startStt(media.path, settings.stt, hotwords).catch((error) => fail(errorText(error)))
     })
+  }
+
+  /** Checked before anything starts, so the form can say what is wrong. */
+  function checkImport(url: string, targetDir: string): { url: string } | { error: string } {
+    try {
+      const normalized = parseVideoUrl(url)
+      if (!targetDir.trim()) throw new Error('영상을 저장할 폴더를 선택해 주세요.')
+      return { url: normalized }
+    } catch (error) {
+      return { error: errorText(error) }
+    }
+  }
+
+  async function importFrom(url: string, targetDir: string): Promise<StepEnd> {
+    if (get().job) return { end: 'failed', detail: '다른 작업이 진행 중입니다.' }
+    const checked = checkImport(url, targetDir)
+    if ('error' in checked) {
+      set({ importError: checked.error })
+      return { end: 'failed', detail: checked.error }
+    }
+    let cancelled = false
+    let downloading = true
+    let nativeStarted = false
+    const requestCancel = () => {
+      void api.cancelImportVideo().catch((error) => set({ importError: errorText(error) }))
+    }
+    const cancel = () => {
+      cancelled = true
+      set({ job: { label: '가져오기 취소 중', progress: null } })
+      if (nativeStarted) requestCancel()
+    }
+    const unsubscribe = api.onImportProgress((event) => {
+      nativeStarted = true
+      if (cancelled && downloading) requestCancel()
+      else if (downloading) set({ job: { ...event, cancel } })
+    })
+    set({ importError: null, job: { label: '영상 URL 확인 중', progress: null, cancel } })
+    try {
+      await flushAutosave()
+      if (cancelled) return { end: 'cancelled' }
+      const path = await api.importVideo(checked.url, targetDir)
+      if (cancelled) return { end: 'cancelled' }
+      downloading = false
+      set({ job: { label: '가져온 영상 준비 중', progress: null } })
+      const media = await api.openMedia(path)
+      const project = await api.loadProject(path)
+      await flushAutosave()
+      await applyProject(media, project, null)
+      set({ message: `영상을 가져왔습니다: ${path}` })
+      return { end: 'done', detail: baseName(path) }
+    } catch (error) {
+      if (cancelled) return { end: 'cancelled' }
+      set({ importError: `영상 가져오기 실패: ${errorText(error)}` })
+      return { end: 'failed', detail: errorText(error) }
+    } finally {
+      unsubscribe()
+      set({ job: null })
+    }
+  }
+
+  /** Runs the agent clean-up as a job and hands back what it proposes, without applying anything. */
+  async function requestRefinement(): Promise<StepEnd & { refinement?: Refinement }> {
+    const { media, clips, job, settings, mediaSession } = get()
+    if (job || !media) return { end: 'failed', detail: '다른 작업이 진행 중입니다.' }
+    const request = refineRequest(clips, media.path, settings.dictionary)
+    if (request.words.length === 0) {
+      const detail = '단어 정보가 없어 영어 대사를 다듬을 수 없습니다. 음성 인식을 먼저 실행해 주세요.'
+      set({ message: detail })
+      return { end: 'skipped', detail }
+    }
+    const unsubscribe = api.onRefineProgress((event) => {
+      if (get().mediaSession !== mediaSession) return
+      set((state) => (state.job ? { job: { ...state.job, label: event.label, progress: event.progress } } : {}))
+    })
+    let cancelled = false
+    const cancel = () => {
+      cancelled = true
+      void api.cancelAgentRefine()
+    }
+    set({ dialog: null, refinement: null, job: { label: '영어 다듬기 준비 중', progress: null, cancel } })
+    try {
+      const result = await api.startAgentRefine(request)
+      if (get().mediaSession !== mediaSession) return { end: 'cancelled' }
+      const { corrections, skipped } = describeCorrections(clips, result.edits)
+      return {
+        end: 'done',
+        refinement: { source: clips, corrections, terms: result.terms, dropped: result.rejected + skipped, failed: result.failed }
+      }
+    } catch (error) {
+      if (get().mediaSession !== mediaSession) return { end: 'cancelled' }
+      set({
+        message: cancelled
+          ? '영어 다듬기를 취소했습니다. 자막은 인식된 그대로입니다.'
+          : `영어 다듬기 실패: ${errorText(error)} 자막은 인식된 그대로 두었습니다.`
+      })
+      return cancelled ? { end: 'cancelled' } : { end: 'failed', detail: errorText(error) }
+    } finally {
+      unsubscribe()
+      if (get().mediaSession === mediaSession) set({ job: null })
+    }
+  }
+
+  /** 문장으로 묶기 with its defaults; sentences pySBD leaves too long go to the agent before the result is applied. */
+  async function groupIntoSentences(): Promise<StepEnd> {
+    const { clips, mediaSession } = get()
+    const words = allWords(clips)
+    if (words.length === 0) return { end: 'skipped', detail: '단어 정보가 없습니다.' }
+    let cancelled = false
+    set({ job: { label: '문장 경계 분석 중', progress: null } })
+    try {
+      let ends = await api.sentenceBoundaries(words.map((word) => word.text))
+      validateSentenceEnds(words.length, ends)
+      const spans = longSentenceSpans(words, ends)
+      let note = ''
+      if (spans.length > 0) {
+        const cancel = () => {
+          cancelled = true
+          void api.cancelAgentSplit()
+        }
+        set({ job: { label: `Agent가 긴 문장 ${spans.length}개를 나누는 중`, progress: null, cancel } })
+        try {
+          const results = await api.agentSplitSentences(agentSplitRequest(words, spans))
+          ends = mergeSplitEnds(ends, spans, results)
+          note = ` · 긴 문장 ${spans.length}개를 Agent가 나눔`
+        } catch (error) {
+          if (cancelled) return { end: 'cancelled' }
+          note = ` · 긴 문장은 나누지 못함 (${errorText(error)})`
+        }
+      }
+      if (get().clips !== clips || get().mediaSession !== mediaSession) return { end: 'cancelled' }
+      const grouped = groupSentences(clips, ends).clips
+      commit(grouped)
+      set({ message: `문장 단위로 자막 ${grouped.length}개를 적용했습니다.` })
+      return { end: 'done', detail: `문장 ${grouped.length}개${note}` }
+    } catch (error) {
+      return { end: 'failed', detail: errorText(error) }
+    } finally {
+      if (get().mediaSession === mediaSession) set({ job: null })
+    }
   }
 
   return {
@@ -297,6 +488,7 @@ export const useStore = create<State>((set, get) => {
     dragHint: null,
     follow: true,
     refinement: null,
+    pipeline: null,
 
     async init() {
       const saved = await api.loadSettings()
@@ -309,7 +501,7 @@ export const useStore = create<State>((set, get) => {
       await openProjectFrom(api.openLaunchProject)
     },
 
-    setDialog: (dialog) => set({ dialog, ...(dialog === 'import' ? { importError: null } : {}) }),
+    setDialog: (dialog) => set({ dialog, ...(dialog === 'import' || dialog === 'oneShot' ? { importError: null } : {}) }),
     setMessage: (message) => set({ message }),
     setDragHint: (dragHint) => set({ dragHint }),
     setFollow: (follow) => set({ follow }),
@@ -320,54 +512,7 @@ export const useStore = create<State>((set, get) => {
       void api.saveSettings(settings)
     },
 
-    async importVideo(url, targetDir) {
-      if (get().job) return false
-      let normalized: string
-      try {
-        normalized = parseVideoUrl(url)
-        if (!targetDir.trim()) throw new Error('영상을 저장할 폴더를 선택해 주세요.')
-      } catch (error) {
-        set({ importError: errorText(error) })
-        return false
-      }
-      let cancelled = false
-      let downloading = true
-      let nativeStarted = false
-      const requestCancel = () => {
-        void api.cancelImportVideo().catch((error) => set({ importError: errorText(error) }))
-      }
-      const cancel = () => {
-        cancelled = true
-        set({ job: { label: '가져오기 취소 중', progress: null } })
-        if (nativeStarted) requestCancel()
-      }
-      const unsubscribe = api.onImportProgress((event) => {
-        nativeStarted = true
-        if (cancelled && downloading) requestCancel()
-        else if (downloading) set({ job: { ...event, cancel } })
-      })
-      set({ importError: null, job: { label: '영상 URL 확인 중', progress: null, cancel } })
-      try {
-        await flushAutosave()
-        if (cancelled) return false
-        const path = await api.importVideo(normalized, targetDir)
-        if (cancelled) return false
-        downloading = false
-        set({ job: { label: '가져온 영상 준비 중', progress: null } })
-        const media = await api.openMedia(path)
-        const project = await api.loadProject(path)
-        await flushAutosave()
-        await applyProject(media, project, null)
-        set({ message: `영상을 가져왔습니다: ${path}` })
-        return true
-      } catch (error) {
-        if (!cancelled) set({ importError: `영상 가져오기 실패: ${errorText(error)}` })
-        return false
-      } finally {
-        unsubscribe()
-        set({ job: null })
-      }
-    },
+    importVideo: async (url, targetDir) => (await importFrom(url, targetDir)).end === 'done',
 
     async openMedia() {
       if (get().job) return
@@ -548,17 +693,19 @@ export const useStore = create<State>((set, get) => {
 
     async startAgentTranslate() {
       const { media, projectPath, clips, job, settings, mediaSession, projectSubtitles } = get()
-      if (job || !media || clips.length === 0) return
+      if (job || !media || clips.length === 0) return { end: 'failed', detail: '번역할 자막이 없습니다.' }
       const cues = translationCues(clips)
       if (cues.length === 0) {
         set({ dialog: null, message: '번역할 영어 자막이 없습니다.' })
-        return
+        return { end: 'skipped', detail: '번역할 영어 자막이 없습니다.' }
       }
       const targetPath = translationTarget(stripExtension(projectPath ?? media.path))
       const fileName = targetPath.split(/[\\/]/).pop()
       const exists = projectSubtitles.some((subtitle) => subtitle.path.toLowerCase() === targetPath.toLowerCase())
-      if (exists && !(await api.confirm(`${fileName} 파일을 새 번역으로 덮어쓸까요?`, '기존 한국어 자막은 사라집니다. 편집 화면의 자막은 실행 취소로 되돌릴 수 있습니다.'))) return
-      if (get().job || get().mediaSession !== mediaSession) return
+      if (exists && !(await api.confirm(`${fileName} 파일을 새 번역으로 덮어쓸까요?`, '기존 한국어 자막은 사라집니다. 편집 화면의 자막은 실행 취소로 되돌릴 수 있습니다.'))) {
+        return { end: 'cancelled', detail: `${fileName} 파일을 덮어쓰지 않았습니다.` }
+      }
+      if (get().job || get().mediaSession !== mediaSession) return { end: 'cancelled' }
 
       const draft = translationDraftFor(cues)
       const unsubscribe = api.onTranslateProgress((event) => {
@@ -566,10 +713,12 @@ export const useStore = create<State>((set, get) => {
         if (get().mediaSession !== mediaSession) return
         set((state) => (state.job ? { job: { ...state.job, label: event.label, progress: event.progress } } : {}))
       })
-      set({
-        dialog: null,
-        job: { label: 'Agent 번역 준비 중', progress: draft.done.size / cues.length, cancel: () => void api.cancelAgentTranslate() }
-      })
+      let cancelled = false
+      const cancel = () => {
+        cancelled = true
+        void api.cancelAgentTranslate()
+      }
+      set({ dialog: null, job: { label: 'Agent 번역 준비 중', progress: draft.done.size / cues.length, cancel } })
 
       try {
         const translations = await api.startAgentTranslate({
@@ -577,7 +726,7 @@ export const useStore = create<State>((set, get) => {
           done: [...draft.done].map(([id, text]) => ({ id, text })),
           glossary: glossaryTerms(settings.dictionary)
         })
-        if (get().mediaSession !== mediaSession) return
+        if (get().mediaSession !== mediaSession) return { end: 'cancelled' }
         translationDraft = null
         const translated = applyTranslations(get().clips, clips, translations)
         commit(translated)
@@ -585,12 +734,14 @@ export const useStore = create<State>((set, get) => {
         const path = await api.saveSrt(serializeSrt(translated), targetPath, targetPath)
         set({ srtPath: path ?? targetPath, message: `Agent 번역을 마치고 저장했습니다: ${fileName}` })
         await refreshProjectSubtitles()
+        return { end: 'done', detail: `자막 ${cues.length}개 · ${fileName} 저장` }
       } catch (error) {
-        if (get().mediaSession !== mediaSession) return
+        if (get().mediaSession !== mediaSession) return { end: 'cancelled' }
         const kept = draft.done.size > 0 && draft.done.size < cues.length
           ? ` 번역한 ${draft.done.size}/${cues.length}개는 기억해 두었다가 다시 시작하면 이어서 번역합니다.`
           : ''
         set({ message: `Agent 번역 실패: ${errorText(error)}${kept}` })
+        return { end: cancelled ? 'cancelled' : 'failed', detail: `${errorText(error)}${kept}` }
       } finally {
         unsubscribe()
         if (get().mediaSession === mediaSession) set({ job: null })
@@ -598,47 +749,14 @@ export const useStore = create<State>((set, get) => {
     },
 
     async startRefine() {
-      const { media, clips, job, settings, mediaSession } = get()
-      if (job || !media) return
-      const request = refineRequest(clips, media.path, settings.dictionary)
-      if (request.words.length === 0) {
-        set({ message: '단어 정보가 없어 영어 대사를 다듬을 수 없습니다. 음성 인식을 먼저 실행해 주세요.' })
+      const { refinement } = await requestRefinement()
+      if (!refinement) return
+      if (refinement.corrections.length === 0) {
+        const unchecked = refinement.failed > 0 ? ` 일부 구간(${refinement.failed}곳)은 응답을 받지 못해 그대로 두었습니다.` : ''
+        set({ message: `영어 다듬기: 고칠 곳을 찾지 못했습니다.${unchecked}` })
         return
       }
-      const unsubscribe = api.onRefineProgress((event) => {
-        if (get().mediaSession !== mediaSession) return
-        set((state) => (state.job ? { job: { ...state.job, label: event.label, progress: event.progress } } : {}))
-      })
-      let cancelled = false
-      const cancel = () => {
-        cancelled = true
-        void api.cancelAgentRefine()
-      }
-      set({ dialog: null, refinement: null, job: { label: '영어 다듬기 준비 중', progress: null, cancel } })
-      try {
-        const result = await api.startAgentRefine(request)
-        if (get().mediaSession !== mediaSession) return
-        const { corrections, skipped } = describeCorrections(clips, result.edits)
-        const unchecked = result.failed > 0 ? ` 일부 구간(${result.failed}곳)은 응답을 받지 못해 그대로 두었습니다.` : ''
-        if (corrections.length === 0) {
-          set({ message: `영어 다듬기: 고칠 곳을 찾지 못했습니다.${unchecked}` })
-          return
-        }
-        set({
-          refinement: { source: clips, corrections, terms: result.terms, dropped: result.rejected + skipped, failed: result.failed },
-          dialog: 'refine'
-        })
-      } catch (error) {
-        if (get().mediaSession !== mediaSession) return
-        set({
-          message: cancelled
-            ? '영어 다듬기를 취소했습니다. 자막은 인식된 그대로입니다.'
-            : `영어 다듬기 실패: ${errorText(error)} 자막은 인식된 그대로 두었습니다.`
-        })
-      } finally {
-        unsubscribe()
-        if (get().mediaSession === mediaSession) set({ job: null })
-      }
+      set({ refinement, dialog: 'refine' })
     },
 
     applyRefinement(chosen, terms) {
@@ -655,6 +773,87 @@ export const useStore = create<State>((set, get) => {
     },
 
     dismissRefinement: () => set({ refinement: null, dialog: null }),
+
+    async runOneShot(url, targetDir) {
+      if (get().job || (get().pipeline && !get().pipeline!.outcome)) return
+      const checked = checkImport(url, targetDir)
+      if ('error' in checked) {
+        set({ importError: checked.error })
+        return
+      }
+      set({
+        dialog: null,
+        importError: null,
+        pipeline: { steps: PIPELINE_STEPS.map(({ key, label }) => ({ key, label, state: 'pending' })), outcome: null }
+      })
+      const update = (key: PipelineStepKey, change: Partial<PipelineStep>) => set((state) => state.pipeline
+        ? { pipeline: { ...state.pipeline, steps: state.pipeline.steps.map((step) => step.key === key ? { ...step, ...change } : step) } }
+        : {})
+      const run = async <T extends StepEnd>(key: PipelineStepKey, work: () => Promise<T>): Promise<T> => {
+        update(key, { state: 'running', startedAt: Date.now() })
+        let result: T
+        try {
+          result = await work()
+        } catch (error) {
+          result = { end: 'failed', detail: errorText(error) } as T
+        }
+        update(key, { state: result.end, detail: result.detail, endedAt: Date.now() })
+        return result
+      }
+      const stop = (outcome: NonNullable<Pipeline['outcome']>) => set((state) => state.pipeline
+        ? {
+            pipeline: {
+              outcome,
+              steps: state.pipeline.steps.map((step) => step.state === 'pending' ? { ...step, state: 'skipped' } : step)
+            }
+          }
+        : {})
+      const halted = (result: StepEnd) => result.end === 'cancelled' ? 'cancelled' : 'failed'
+
+      const imported = await run('import', () => importFrom(checked.url, targetDir))
+      if (imported.end !== 'done') return stop(halted(imported))
+
+      const recognised = await run('transcribe', async (): Promise<StepEnd & { language?: string }> => {
+        if (allWords(get().clips).length > 0 &&
+          !(await api.confirm('이 영상에는 이미 자막이 있습니다. 음성 인식을 다시 실행할까요?', '현재 자막은 새 인식 결과로 바뀝니다. 실행 취소로 되돌릴 수 있습니다.'))) {
+          return { end: 'cancelled', detail: '기존 자막을 그대로 두었습니다.' }
+        }
+        return runTranscription()
+      })
+      if (recognised.end !== 'done') return stop(halted(recognised))
+      if (recognised.language !== 'en') {
+        const detail = '영어 대사가 아니라 건너뛰었습니다.'
+        for (const key of ['refine', 'group', 'translate'] as const) update(key, { state: 'skipped', detail })
+        return stop('done')
+      }
+
+      // Unattended: every correction goes in, the dictionary is left as it is.
+      const refined = await run('refine', async (): Promise<StepEnd> => {
+        const { refinement, ...result } = await requestRefinement()
+        if (!refinement) return result
+        const unchecked = refinement.failed > 0 ? ` · 응답 없는 구간 ${refinement.failed}곳은 그대로` : ''
+        if (refinement.corrections.length === 0) return { end: 'done', detail: `고칠 곳 없음${unchecked}` }
+        if (get().clips !== refinement.source) return { end: 'cancelled' }
+        commit(applyCorrections(refinement.source, refinement.corrections))
+        const words = refinement.corrections.filter((correction) => correction.kind === 'word').length
+        const style = refinement.corrections.length - words
+        set({ message: `영어 대사 ${refinement.corrections.length}곳을 다듬었습니다.` })
+        return { end: 'done', detail: `단어 ${words}곳 · 문장부호·대소문자 ${style}곳 고침${unchecked}` }
+      })
+      // A failed clean-up leaves the words as heard; grouping and translating still work on them.
+      if (refined.end === 'cancelled') return stop('cancelled')
+
+      const grouped = await run('group', groupIntoSentences)
+      if (grouped.end === 'cancelled') return stop('cancelled')
+
+      const translated = await run('translate', () => get().startAgentTranslate())
+      // Reaching the end is 'done' even when a middle step failed; the checklist shows which one.
+      stop(translated.end === 'cancelled' ? 'cancelled' : 'done')
+    },
+
+    closePipeline() {
+      if (get().pipeline?.outcome) set({ pipeline: null })
+    },
 
     beginEdit: () => set((state) => ({ past: [...state.past, state.clips].slice(-HISTORY_LIMIT), future: [] })),
 

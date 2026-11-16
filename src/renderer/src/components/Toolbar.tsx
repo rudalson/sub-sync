@@ -1,4 +1,4 @@
-import { BookOpen, Bot, Captions, Combine, Download, FileUp, FileVideo2, FolderOpen, Redo2, Scissors, Undo2, Upload, WandSparkles } from 'lucide-react'
+import { BookOpen, Bot, Captions, Combine, Download, FileUp, FileVideo2, FolderOpen, Redo2, Scissors, Undo2, Upload, WandSparkles, Zap } from 'lucide-react'
 import englishFlag from '../assets/flags/us.svg'
 import koreanFlag from '../assets/flags/kr.svg'
 import { useStore } from '../store'
@@ -26,7 +26,7 @@ export function Toolbar() {
   // The loaded subtitle is also where SRT 저장 writes, so its flag shows which language is being edited.
   const srtPath = useStore((state) => state.srtPath)
   const currentSubtitle = srtPath === null ? undefined : projectSubtitles.find((subtitle) => samePath(subtitle.path, srtPath))
-  const busy = useStore((state) => state.job !== null)
+  const busy = useStore((state) => state.job !== null || state.pipeline !== null)
   const name = (projectPath ?? media?.path)?.split(/[\\/]/).pop() ?? '새 프로젝트'
   // Before a video is open the empty state already says how to start; the header does not repeat it.
   const status = !media ? null
@@ -45,6 +45,14 @@ export function Toolbar() {
           )}
         </div>
         <div className="project-actions" aria-label="프로젝트 도구">
+          <button
+            className="one-shot-button"
+            disabled={busy}
+            onClick={() => useStore.getState().setDialog('oneShot')}
+            title="URL 영상을 가져와 자막 생성 · 영어 다듬기 · 문장으로 묶기 · Agent 번역까지 한 번에 진행합니다"
+          >
+            <Zap size={16} aria-hidden="true" />영상 한번에
+          </button>
           <button onClick={() => void useStore.getState().openProject()} title="프로젝트 열기 (Ctrl+O)">
             <FolderOpen size={16} aria-hidden="true" />프로젝트 열기
           </button>

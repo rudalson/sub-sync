@@ -34,7 +34,7 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       const store = useStore.getState()
       const key = event.key.toLowerCase()
-      if (event.defaultPrevented || store.job || store.dialog) return
+      if (event.defaultPrevented || store.job || store.dialog || store.pipeline) return
       if (event.ctrlKey && key === 's') {
         event.preventDefault()
         if (event.altKey) void store.saveSrt(event.shiftKey)

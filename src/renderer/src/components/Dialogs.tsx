@@ -9,7 +9,7 @@ import { stripExtension } from '../../../shared/pipeline'
 import { newDictionaryTerms } from '../../../shared/refine'
 import { translationCues, translationTarget } from '../../../shared/translate'
 import { formatTimecode } from '../player'
-import { resumableTranslations, useStore } from '../store'
+import { PIPELINE_STEPS, resumableTranslations, useStore } from '../store'
 import { FontPicker } from './FontPicker'
 import { Modal } from './Modal'
 
@@ -111,9 +111,11 @@ function LengthFields() {
   )
 }
 
-function ImportVideoDialog() {
+/** The URL form of 영상 가져오기; with `oneShot` it starts 영상 한번에, which carries on to the translated subtitles. */
+function ImportVideoDialog({ oneShot = false }: { oneShot?: boolean }) {
   const currentPath = useStore((state) => state.projectPath ?? state.media?.path)
   const busy = useStore((state) => state.job !== null)
+  const stt = useStore((state) => state.settings.stt)
   const importError = useStore((state) => state.importError)
   const [url, setUrl] = useState('')
   const [targetDir, setTargetDir] = useState(() => currentPath?.replace(/[^\\/]+$/, '') ?? '')
@@ -137,17 +139,19 @@ function ImportVideoDialog() {
 
   return (
     <Dialog
-      title="영상 가져오기"
-      description="YouTube 등의 영상 URL을 입력하고 저장할 폴더를 선택하세요."
+      title={oneShot ? '영상 한번에' : '영상 가져오기'}
+      description={oneShot
+        ? '영상 URL만 넣으면 가져오기부터 한국어 번역까지 이어서 진행합니다.'
+        : 'YouTube 등의 영상 URL을 입력하고 저장할 폴더를 선택하세요.'}
       onClose={() => { if (!busy && !picking) store.setDialog(null) }}
       footer={<button className="primary" type="submit" form="import-video-form" disabled={busy || picking || !url.trim() || !targetDir}>
-        가져오기
+        {oneShot ? '시작' : '가져오기'}
       </button>}
     >
       <form id="import-video-form" className="import-form" onSubmit={(event) => {
         event.preventDefault()
         setPickerError(null)
-        void store.importVideo(url, targetDir)
+        void (oneShot ? store.runOneShot(url, targetDir) : store.importVideo(url, targetDir))
       }}>
         <label className="import-field">
           <span>영상 URL</span>
@@ -165,8 +169,27 @@ function ImportVideoDialog() {
           </div>
         </div>
         {error && <p id="import-video-error" className="import-error" role="alert">{error}</p>}
+        {oneShot && <Field label="Whisper 모델">
+          <select value={stt.model} onChange={(event) => store.updateSettings({ stt: { ...stt, model: event.target.value } })} disabled={busy}>
+            {MODELS.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+          </select>
+        </Field>}
       </form>
-      <p className="note">영상 한 개를 선택한 폴더에 저장하고 바로 엽니다. 재생목록 링크는 첫 번째 영상만 가져옵니다.</p>
+      {oneShot
+        ? <div className="dialog-stack one-shot-plan">
+          <ol className="one-shot-steps">
+            {PIPELINE_STEPS.map((step) => <li key={step.key}>{step.label}</li>)}
+          </ol>
+          <div className="callout">
+            <strong>중간에 멈추지 않고 진행합니다</strong>
+            <p>
+              영어 다듬기의 교정은 검토 없이 모두 적용하고, 문장으로 묶은 뒤에도 긴 문장은 Agent가 나눕니다.
+              단계마다 실행 취소 한 번으로 되돌릴 수 있습니다. 자막 길이와 언어는 자막 생성의 마지막 설정을 쓰며,
+              Agent 단계는 Antigravity CLI(agy)의 요금제 쿼터를 사용합니다. 번역은 영상 옆 <code>.ko.srt</code>로 저장됩니다.
+            </p>
+          </div>
+        </div>
+        : <p className="note">영상 한 개를 선택한 폴더에 저장하고 바로 엽니다. 재생목록 링크는 첫 번째 영상만 가져옵니다.</p>}
     </Dialog>
   )
 }
@@ -655,6 +678,7 @@ function AgentTranslateDialog() {
 export function Dialogs() {
   const dialog = useStore((state) => state.dialog)
   if (dialog === 'import') return <ImportVideoDialog />
+  if (dialog === 'oneShot') return <ImportVideoDialog oneShot />
   if (dialog === 'stt') return <SttDialog />
   if (dialog === 'sentenceBoundary') return <SentenceBoundaryDialog />
   if (dialog === 'recut') return <RecutDialog />

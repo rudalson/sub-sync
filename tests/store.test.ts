@@ -9,6 +9,7 @@ const api = {
   importVideo: vi.fn(), cancelImportVideo: vi.fn(), onImportProgress: vi.fn(),
   startAgentTranslate: vi.fn(), cancelAgentTranslate: vi.fn(), onTranslateProgress: vi.fn(),
   startAgentRefine: vi.fn(), cancelAgentRefine: vi.fn(), onRefineProgress: vi.fn(),
+  sentenceBoundaries: vi.fn(), agentSplitSentences: vi.fn(), cancelAgentSplit: vi.fn(),
   saveSettings: vi.fn(), loadSettings: vi.fn(), onProgress: vi.fn(),
   startStt: vi.fn(), onSttEvent: vi.fn(), saveSrt: vi.fn(), closeWindow: vi.fn(), confirm: vi.fn()
 }
@@ -775,5 +776,136 @@ describe('English clean-up', () => {
     expect(useStore.getState().clips).toBe(edited)
     expect(useStore.getState().message).toContain('다시 실행')
     expect(useStore.getState().refinement).toBeNull()
+  })
+})
+
+describe('영상 한번에', () => {
+  type SttListener = (event: { type: string; [key: string]: unknown }) => void
+  const heard = [
+    { text: 'inside', start: 0, end: 0.4, prob: 0.9 }, { text: 'of', start: 0.5, end: 0.7, prob: 0.9 },
+    { text: 'Cloud', start: 0.8, end: 1.1, prob: 0.3 }, { text: 'Code', start: 1.2, end: 1.5, prob: 0.9 },
+    { text: 'go', start: 1.6, end: 1.8, prob: 0.9 }, { text: 'ahead', start: 1.9, end: 2.3, prob: 0.9 }
+  ]
+
+  function hearing(words: typeof heard, language = 'en') {
+    let listener: SttListener | undefined
+    api.onSttEvent.mockImplementation((next: SttListener) => {
+      listener = next
+      return vi.fn()
+    })
+    api.startStt.mockImplementation(async () => {
+      listener?.({ type: 'segment', words })
+      listener?.({ type: 'done', language, device: 'cuda' })
+    })
+  }
+  const states = () => useStore.getState().pipeline?.steps.map((step) => [step.key, step.state])
+
+  beforeEach(() => {
+    api.importVideo.mockResolvedValue(media.path)
+    api.saveSrt.mockImplementation(async (_content, path) => path)
+    api.cancelAgentSplit.mockResolvedValue(undefined)
+    hearing(heard)
+  })
+
+  it('imports, recognises, cleans up, groups and translates in one go, each as its own undo step', async () => {
+    api.startAgentRefine.mockResolvedValue({
+      edits: [{ start: 0, end: 1, text: 'Inside' }, { start: 2, end: 4, text: 'Claude Code,' }, { start: 5, end: 6, text: 'ahead.' }],
+      terms: ['Claude Code'], rejected: 0, failed: 0
+    })
+    api.sentenceBoundaries.mockResolvedValue([4, 6])
+    api.startAgentTranslate.mockResolvedValue([{ id: 1, text: 'Claude Code 안에서,' }, { id: 2, text: '진행하세요.' }])
+    useStore.getState().setDialog('oneShot')
+
+    await useStore.getState().runOneShot('https://youtu.be/abc123', 'C:\\Videos')
+
+    const state = useStore.getState()
+    expect(state.dialog).toBeNull()
+    expect(state.job).toBeNull()
+    expect(state.pipeline?.outcome).toBe('done')
+    expect(states()).toEqual([['import', 'done'], ['transcribe', 'done'], ['refine', 'done'], ['group', 'done'], ['translate', 'done']])
+    expect(state.pipeline?.steps.map((step) => step.detail)).toEqual([
+      '원본.mp4', expect.stringContaining('생성 완료'), '단어 1곳 · 문장부호·대소문자 2곳 고침', '문장 2개', '자막 2개 · 원본.ko.srt 저장'
+    ])
+    // Every correction went in unattended; the dictionary was left alone.
+    expect(api.startAgentTranslate).toHaveBeenCalledWith(expect.objectContaining({
+      cues: [{ id: 1, text: 'Inside of Claude Code,' }, { id: 2, text: 'go ahead.' }]
+    }))
+    expect(api.agentSplitSentences).not.toHaveBeenCalled()
+    expect(state.settings.dictionary).toBe('')
+    expect(state.clips.map((clip) => clip.text)).toEqual(['Claude Code 안에서,', '진행하세요.'])
+    expect(state.srtPath).toBe('C:\\Videos\\원본.ko.srt')
+    expect(state.past).toHaveLength(4)
+
+    useStore.getState().closePipeline()
+    expect(useStore.getState().pipeline).toBeNull()
+  })
+
+  it('lets the agent split a sentence that is still too long before grouping', async () => {
+    const long = Array.from({ length: 44 }, (_, i) => ({ text: 'word', start: i * 0.4, end: i * 0.4 + 0.3, prob: 0.9 }))
+    hearing(long)
+    api.startAgentRefine.mockResolvedValue({ edits: [], terms: [], rejected: 0, failed: 0 })
+    api.sentenceBoundaries.mockResolvedValue([44])
+    api.agentSplitSentences.mockResolvedValue([{ id: 1, ends: [20, 44] }])
+    api.startAgentTranslate.mockResolvedValue([{ id: 1, text: '하나' }, { id: 2, text: '둘' }])
+
+    await useStore.getState().runOneShot('https://youtu.be/abc123', 'C:\\Videos')
+
+    expect(api.agentSplitSentences).toHaveBeenCalledOnce()
+    const steps = useStore.getState().pipeline!.steps
+    expect(steps.find((step) => step.key === 'refine')?.detail).toBe('고칠 곳 없음')
+    expect(steps.find((step) => step.key === 'group')?.detail).toBe('문장 2개 · 긴 문장 1개를 Agent가 나눔')
+    expect(useStore.getState().clips.map((clip) => clip.words.length)).toEqual([20, 24])
+  })
+
+  it('stops at a failed download', async () => {
+    api.importVideo.mockRejectedValue(new Error('지원하지 않는 URL입니다.'))
+    await useStore.getState().runOneShot('https://example.com/not-a-video', 'C:\\Videos')
+    expect(useStore.getState().pipeline?.outcome).toBe('failed')
+    expect(states()).toEqual([['import', 'failed'], ['transcribe', 'skipped'], ['refine', 'skipped'], ['group', 'skipped'], ['translate', 'skipped']])
+    expect(useStore.getState().pipeline?.steps[0].detail).toContain('지원하지 않는 URL')
+    expect(api.startStt).not.toHaveBeenCalled()
+  })
+
+  it('checks the URL and folder in the form before anything starts', async () => {
+    useStore.getState().setDialog('oneShot')
+    await useStore.getState().runOneShot('file:///C:/video.mp4', 'C:\\Videos')
+    expect(useStore.getState().pipeline).toBeNull()
+    expect(useStore.getState().dialog).toBe('oneShot')
+    expect(useStore.getState().importError).toBeTruthy()
+    expect(api.importVideo).not.toHaveBeenCalled()
+  })
+
+  it('carries on with the words as heard when the clean-up fails', async () => {
+    api.startAgentRefine.mockRejectedValue(new Error('Antigravity CLI(agy)를 실행할 수 없습니다.'))
+    api.sentenceBoundaries.mockResolvedValue([6])
+    api.startAgentTranslate.mockResolvedValue([{ id: 1, text: '번역' }])
+    await useStore.getState().runOneShot('https://youtu.be/abc123', 'C:\\Videos')
+    expect(useStore.getState().pipeline?.outcome).toBe('done')
+    expect(states()).toEqual([['import', 'done'], ['transcribe', 'done'], ['refine', 'failed'], ['group', 'done'], ['translate', 'done']])
+    expect(api.startAgentTranslate).toHaveBeenCalledWith(expect.objectContaining({ cues: [{ id: 1, text: heard.map((w) => w.text).join(' ') }] }))
+  })
+
+  it('skips the English steps when the talk is not English', async () => {
+    hearing(heard, 'ko')
+    await useStore.getState().runOneShot('https://youtu.be/abc123', 'C:\\Videos')
+    expect(useStore.getState().pipeline?.outcome).toBe('done')
+    expect(states()).toEqual([['import', 'done'], ['transcribe', 'done'], ['refine', 'skipped'], ['group', 'skipped'], ['translate', 'skipped']])
+    expect(api.startAgentRefine).not.toHaveBeenCalled()
+    expect(api.startAgentTranslate).not.toHaveBeenCalled()
+  })
+
+  it('stops where the translation is cancelled and keeps the checklist until it is closed', async () => {
+    api.startAgentRefine.mockResolvedValue({ edits: [], terms: [], rejected: 0, failed: 0 })
+    api.sentenceBoundaries.mockResolvedValue([6])
+    api.startAgentTranslate.mockImplementation(async () => {
+      useStore.getState().job!.cancel!()
+      throw new Error('번역을 취소했습니다.')
+    })
+    await useStore.getState().runOneShot('https://youtu.be/abc123', 'C:\\Videos')
+    expect(api.cancelAgentTranslate).toHaveBeenCalledOnce()
+    expect(useStore.getState().pipeline?.outcome).toBe('cancelled')
+    expect(states()?.at(-1)).toEqual(['translate', 'cancelled'])
+    expect(useStore.getState().job).toBeNull()
+    expect(useStore.getState().pipeline).not.toBeNull()
   })
 })
