@@ -83,6 +83,14 @@ export function Toolbar() {
           <button className="quiet" disabled={!hasClips} onClick={() => useStore.getState().setDialog('sentenceBoundary')}>
             <Combine size={16} aria-hidden="true" />문장으로 묶기
           </button>
+          <button
+            className="quiet"
+            disabled={busy || !hasClips}
+            onClick={() => useStore.getState().setDialog('agentTranslate')}
+            title="Antigravity Agent를 사용해 한국어 자막으로 번역합니다"
+          >
+            <Bot size={16} aria-hidden="true" />Agent 번역
+          </button>
           <button className="quiet" disabled={!hasClips} onClick={() => useStore.getState().setDialog('recut')}>
             <Scissors size={16} aria-hidden="true" />자막 길이
           </button>
@@ -93,14 +101,6 @@ export function Toolbar() {
         <div className="command-group secondary-tools">
           <button className="quiet" disabled={busy} onClick={() => void useStore.getState().loadSrt()}>
             <FileUp size={16} aria-hidden="true" />SRT 불러오기
-          </button>
-          <button
-            className="quiet"
-            disabled={busy || !hasClips}
-            onClick={() => useStore.getState().setDialog('agentTranslate')}
-            title="Antigravity Agent를 사용해 한국어 자막으로 번역합니다"
-          >
-            <Bot size={16} aria-hidden="true" />Agent 번역
           </button>
           {media && projectSubtitles.length > 0 && (
             <div className="project-subtitles" role="group" aria-label="프로젝트 폴더의 자막">
