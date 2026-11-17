@@ -1,4 +1,4 @@
-import { BookOpen, Bot, Captions, Combine, Download, FileUp, FileVideo2, FolderOpen, Redo2, Scissors, Undo2, Upload, WandSparkles, Zap } from 'lucide-react'
+import { BookOpen, Bot, Captions, Combine, Download, FileUp, FileVideo2, FolderOpen, Info, Redo2, Scissors, Undo2, Upload, WandSparkles, Zap } from 'lucide-react'
 import englishFlag from '../assets/flags/us.svg'
 import koreanFlag from '../assets/flags/kr.svg'
 import { useStore } from '../store'
@@ -62,6 +62,13 @@ export function Toolbar() {
             onSave={() => void useStore.getState().saveProject()}
             onSaveAs={() => void useStore.getState().saveProject(true)}
           />
+          <button
+            disabled={!media || busy}
+            onClick={() => useStore.getState().setDialog('projectInfo')}
+            title="영상, 음성 인식에 쓴 모델과 설정, 단어 없이 소리만 있는 구간을 봅니다"
+          >
+            <Info size={16} aria-hidden="true" />프로젝트 정보
+          </button>
           <span className="action-divider" aria-hidden="true" />
           <button className="export-button" disabled={!media || !hasClips} onClick={() => useStore.getState().setDialog('export')}>
             <Upload size={16} aria-hidden="true" />영상 내보내기

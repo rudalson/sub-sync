@@ -5,7 +5,9 @@ Writes one JSON object per line to stdout:
   {"type": "progress", "seconds": float, "duration": float}
   {"type": "segment",  "words": [{"text", "start", "end", "prob"}]}
   {"type": "reset"}  # GPU failed; discard words received so far
-  {"type": "done",     "language": str, "device": str}
+  {"type": "done",     "language": str, "device": str, "model": str, "computeType": str,
+                        "languageProbability": float, "audioDuration": float, "speechDuration": float | None,
+                        "vadFilter": bool, "engineVersion": str | None}
   {"type": "error",    "message": str}
 """
 
@@ -32,6 +34,7 @@ def expose_cuda_dlls():
 
 
 def run(args, device, compute_type):
+    import faster_whisper
     from faster_whisper import WhisperModel
 
     emit(type="status", message=f"모델 불러오는 중 ({args.model}, {device})", device=device)
@@ -63,7 +66,23 @@ def run(args, device, compute_type):
             emit(type="segment", words=words)
         emit(type="progress", seconds=segment.end, duration=info.duration)
 
-    emit(type="done", language=info.language, device=device)
+    # Recorded in the project, so a doubtful transcript can be traced to what produced it.
+    emit(
+        type="done",
+        language=info.language,
+        device=device,
+        model=args.model,
+        computeType=compute_type,
+        languageProbability=round(info.language_probability, 3),
+        audioDuration=round(info.duration, 3),
+        speechDuration=_rounded(getattr(info, "duration_after_vad", None)),
+        vadFilter=True,
+        engineVersion=getattr(faster_whisper, "__version__", None),
+    )
+
+
+def _rounded(value):
+    return None if value is None else round(value, 3)
 
 
 def is_gpu_failure(error):

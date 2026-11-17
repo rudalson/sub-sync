@@ -119,6 +119,32 @@ pub struct ProjectFile {
     /// Only for a video imported from a URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video_info: Option<VideoInfo>,
+    /// How the words were recognised; projects from before it was recorded have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcription: Option<TranscriptionRecord>,
+}
+/// What produced the recognised words, written by the editor when 자막 생성 finishes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptionRecord {
+    pub engine: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_version: Option<String>,
+    pub model: String,
+    pub device: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compute_type: Option<String>,
+    pub language: String,
+    pub detected_language: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language_probability: Option<f64>,
+    pub vad_filter: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_duration: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speech_duration: Option<f64>,
+    pub started_at: String,
+    pub finished_at: String,
 }
 /// What the page of an imported video says about it, as hints for the English clean-up.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

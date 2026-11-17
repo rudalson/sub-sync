@@ -8,6 +8,7 @@ import {
 } from '../shared/pipeline'
 import { parseProject } from '../shared/project'
 import { serializeSrt } from '../shared/srt'
+import { transcriptionRecord } from '../shared/transcription'
 import type { Clip, ProjectFile, SttEvent, SttOptions } from '../shared/types'
 import { atomicWrite, decodeSubtitle, samePath, writeProject, type Runtime } from './runtime'
 
@@ -267,15 +268,19 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         const settings = { ...saved, stt, dictionary, segment: { ...saved.segment, ...(maxChars && { maxChars }), ...(maxDuration && { maxDuration }) } }
 
         let label = '음성 인식 준비 중'
+        let finished: Extract<SttEvent, { type: 'done' }> | undefined
+        const startedAt = new Date()
         report.status(`${media.path} (${media.duration.toFixed(1)}초, 모델 ${stt.model}, ${stt.device})`)
         const result = await io.runtime.transcribe(media.path, stt, parseDictionary(dictionary).hotwords, (event: SttEvent) => {
           if (event.type === 'status') report.status(label = event.message)
           else if (event.type === 'progress' && event.duration > 0) report.progress(label, Math.min(1, event.seconds / event.duration))
           else if (event.type === 'reset') report.warn('GPU 인식에 실패해 CPU로 처음부터 다시 인식합니다.')
+          else if (event.type === 'done') finished = event
         }, io.signal)
+        const transcription = finished ? transcriptionRecord(finished, stt, startedAt, new Date()) : null
         const clips = clipsFromTranscript(result.words, [], settings)
         if (clips.length === 0) report.warn('인식된 음성이 없습니다. 빈 프로젝트를 저장합니다.')
-        save(buildProject({ media, clips, settings, peaks: null, playback: { time: 0, rate: 1, follow: true }, srtPath: null }), outputs)
+        save(buildProject({ media, clips, settings, peaks: null, playback: { time: 0, rate: 1, follow: true }, srtPath: null, transcription }), outputs)
         report.result(`자막 ${clips.length}개 생성 완료 (${result.device === 'cuda' ? 'GPU' : 'CPU'}). 저장한 파일:\n${savedTo(outputs)}`,
           { command: name, ...summary(clips), device: result.device, project: outputs.project, srt: outputs.srt ?? null })
         return EXIT.ok

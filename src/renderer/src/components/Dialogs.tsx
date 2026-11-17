@@ -12,6 +12,7 @@ import { formatTimecode } from '../player'
 import { PIPELINE_STEPS, resumableTranslations, useStore } from '../store'
 import { FontPicker } from './FontPicker'
 import { Modal } from './Modal'
+import { ProjectInfoDialog } from './ProjectInfoDialog'
 
 const MODELS = [
   { id: 'large-v3', label: 'large-v3 (권장, 정확)' },
@@ -686,5 +687,6 @@ export function Dialogs() {
   if (dialog === 'export') return <ExportDialog />
   if (dialog === 'agentTranslate') return <AgentTranslateDialog />
   if (dialog === 'refine') return <RefineDialog />
+  if (dialog === 'projectInfo') return <ProjectInfoDialog />
   return null
 }

@@ -391,6 +391,20 @@ button.edge:hover:not(:disabled), button.edge:active:not(:disabled) { background
 .item-text { font-size: 14px; line-height: 1.5; color: var(--text-strong); overflow-wrap: anywhere; }
 
 /* English clean-up review: each heard-wrong word on its own line, in its sentence */
+.info-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.info-section h3 { font-size: 13px; font-weight: 600; color: var(--text); }
+.info-list { display: flex; flex-direction: column; gap: 1px; margin: 0; border-radius: var(--radius-md); overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
+.info-list > div { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 7px 12px; background: var(--ink-1); font-size: 13px; line-height: 1.5; }
+.info-list dt { color: var(--text); }
+.info-list dd { margin: 0; min-width: 0; color: var(--text-strong); overflow-wrap: anywhere; }
+.unheard-list { list-style: none; margin: 0; padding: 0 4px 0 0; display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
+.unheard-item { display: grid; grid-template-columns: minmax(150px, auto) 56px 1fr; align-items: center; gap: 12px; width: 100%; min-height: 32px; padding: 0 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--text); font-size: 13px; text-align: left; }
+.unheard-item:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--ink-4); color: var(--text-strong); }
+.unheard-time { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--text-strong); }
+.unheard-sound { color: var(--warning-text); }
+@media (max-width: 560px) {
+  .info-list > div { grid-template-columns: 1fr; gap: 2px; }
+}
 .refine-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .refine-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .refine-heading h3 { font-size: 13px; font-weight: 600; color: var(--text); }

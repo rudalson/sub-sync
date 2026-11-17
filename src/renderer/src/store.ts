@@ -33,10 +33,11 @@ import {
 } from '../../shared/sentenceBoundary'
 import { serializeSrt } from '../../shared/srt'
 import { closeSubtitleGaps } from '../../shared/timing'
+import { transcriptionRecord } from '../../shared/transcription'
 import { applyTranslations, glossaryTerms, translationCues, translationTarget } from '../../shared/translate'
 import { parseVideoUrl } from '../../shared/videoImport'
 import { pickFace } from '../../shared/fonts'
-import type { Clip, FontFace, MediaInfo, OpenedProject, ProjectFile, ProjectSubtitle, SavedProject, Settings, TranslateCue, VideoInfo, Word } from '../../shared/types'
+import type { Clip, FontFace, MediaInfo, OpenedProject, ProjectFile, ProjectSubtitle, SavedProject, Settings, TranscriptionRecord, TranslateCue, VideoInfo, Word } from '../../shared/types'
 import { captionFont, loadFonts } from './fonts'
 import { restorePlayback, usePlayback } from './player'
 
@@ -63,7 +64,7 @@ export function resumableTranslations(cues: TranslateCue[]): number {
   return translationDraft?.key === JSON.stringify(cues) ? translationDraft.done.size : 0
 }
 
-export type DialogName = 'import' | 'oneShot' | 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary' | 'agentTranslate' | 'refine'
+export type DialogName = 'import' | 'oneShot' | 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary' | 'agentTranslate' | 'refine' | 'projectInfo'
 
 /** How one step of work ended; `detail` is a short line for the one-shot checklist. */
 export interface StepEnd {
@@ -132,6 +133,8 @@ interface State {
   srtPath: string | null
   /** What the page of a video imported from a URL said about it; saved in the project. */
   videoInfo: VideoInfo | null
+  /** What produced the recognised words; saved in the project. */
+  transcription: TranscriptionRecord | null
   projectPath: string | null
   projectSubtitles: ProjectSubtitle[]
   projectDirty: boolean
@@ -244,6 +247,7 @@ export const useStore = create<State>((set, get) => {
         future: [],
         srtPath: full?.srtPath ?? null,
         videoInfo: full?.videoInfo ?? null,
+        transcription: full?.transcription ?? null,
         projectPath,
         projectSubtitles: [],
         projectDirty: !projectPath || !full || full.media.path !== media.path || (!full.waveform && peaks !== null),
@@ -285,6 +289,7 @@ export const useStore = create<State>((set, get) => {
     if (!media) return { end: 'failed', detail: '열린 영상이 없습니다.' }
     const { hotwords } = parseDictionary(settings.dictionary)
     const words: Word[] = []
+    const startedAt = new Date()
 
     return new Promise((resolve) => {
       let finished = false
@@ -322,6 +327,7 @@ export const useStore = create<State>((set, get) => {
           case 'done': {
             const next = clipsFromTranscript(words, clips, get().settings)
             commit(next)
+            set({ transcription: transcriptionRecord(event, settings.stt, startedAt, new Date()) })
             const done = `자막 ${next.length}개 생성 완료 (${event.device === 'cuda' ? 'GPU' : 'CPU'})`
             finish(done, { end: 'done', detail: done, language: event.language })
             break
@@ -482,6 +488,7 @@ export const useStore = create<State>((set, get) => {
     future: [],
     srtPath: null,
     videoInfo: null,
+    transcription: null,
     projectPath: null,
     projectSubtitles: [],
     projectDirty: false,
@@ -558,6 +565,7 @@ export const useStore = create<State>((set, get) => {
           const dirty = current.clips !== project.clips || current.settings !== project.settings ||
             current.peaks !== state.peaks || current.srtPath !== project.srtPath ||
             (current.videoInfo ?? undefined) !== project.videoInfo ||
+            (current.transcription ?? undefined) !== project.transcription ||
             playback.time !== project.playback.time || playback.rate !== project.playback.rate ||
             current.follow !== project.playback.follow
           if (!dirty) {
@@ -898,7 +906,8 @@ function projectSnapshot(state: State, playback = usePlayback.getState()): Proje
     peaks: state.peaks,
     playback: { time: playback.time, rate: playback.rate, follow: state.follow },
     srtPath: state.srtPath,
-    videoInfo: state.videoInfo
+    videoInfo: state.videoInfo,
+    transcription: state.transcription
   })
 }
 
@@ -933,7 +942,8 @@ export async function flushAutosave(): Promise<void> {
 useStore.subscribe((state, previous) => {
   if (restoringProject || state.mediaSession !== previous.mediaSession || !state.media) return
   if (state.clips === previous.clips && state.settings === previous.settings && state.peaks === previous.peaks &&
-    state.follow === previous.follow && state.srtPath === previous.srtPath && state.videoInfo === previous.videoInfo) return
+    state.follow === previous.follow && state.srtPath === previous.srtPath && state.videoInfo === previous.videoInfo &&
+    state.transcription === previous.transcription) return
   if (!state.projectDirty) useStore.setState({ projectDirty: true })
   scheduleAutosave(state)
 })

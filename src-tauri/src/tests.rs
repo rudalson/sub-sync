@@ -53,6 +53,29 @@ fn electron_project_format_round_trips_without_losing_anchors() {
     );
 }
 #[test]
+fn transcription_record_survives_saving_and_older_projects_have_none() {
+    assert!(fixture().transcription.is_none());
+    let record = serde_json::json!({
+        "engine": "faster-whisper", "engineVersion": "1.2.1", "model": "large-v3-turbo",
+        "device": "cuda", "computeType": "float16", "language": "en", "detectedLanguage": "en",
+        "languageProbability": 0.99, "vadFilter": true, "audioDuration": 3600.0, "speechDuration": 3301.5,
+        "startedAt": "2026-11-17T00:00:00.000Z", "finishedAt": "2026-11-17T00:05:00.000Z"
+    });
+    let mut value = serde_json::to_value(fixture()).unwrap();
+    value["transcription"] = record.clone();
+    let SavedProject::Current(project) = project::parse(&value.to_string()).unwrap() else {
+        panic!()
+    };
+    assert_eq!(
+        project.transcription.as_ref().unwrap().model,
+        "large-v3-turbo"
+    );
+    assert_eq!(
+        serde_json::to_value(&project).unwrap()["transcription"],
+        record
+    );
+}
+#[test]
 fn sentence_worker_uses_pysbd_and_returns_word_boundaries_over_utf8_pipes() {
     let dir = TestDirectory::new();
     let state = Backend::new(dir.0.clone(), dir.0.clone()).unwrap();

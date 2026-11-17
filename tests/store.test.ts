@@ -699,6 +699,48 @@ describe('project editing session', () => {
   })
 })
 
+describe('transcription record', () => {
+  type SttListener = (event: { type: string; [key: string]: unknown }) => void
+  const heard = [{ text: 'hello', start: 0, end: 0.4, prob: 0.9 }, { text: 'there', start: 0.5, end: 0.9, prob: 0.4 }]
+
+  it('notes what recognised the words and keeps it in the project until the next recognition', async () => {
+    await useStore.getState().openMedia()
+    expect(useStore.getState().transcription).toBeNull()
+    let listener: SttListener | undefined
+    api.onSttEvent.mockImplementation((next: SttListener) => {
+      listener = next
+      return vi.fn()
+    })
+    api.startStt.mockImplementation(async () => {
+      listener?.({ type: 'segment', words: heard })
+      listener?.({
+        type: 'done', language: 'en', device: 'cuda', model: 'large-v3-turbo', computeType: 'float16',
+        languageProbability: 0.98, audioDuration: 10, speechDuration: 7.5, vadFilter: true, engineVersion: '1.2.1'
+      })
+    })
+    await useStore.getState().transcribe()
+
+    const record = useStore.getState().transcription!
+    expect(record).toMatchObject({
+      engine: 'faster-whisper', engineVersion: '1.2.1', model: 'large-v3-turbo', device: 'cuda', computeType: 'float16',
+      language: useStore.getState().settings.stt.language, detectedLanguage: 'en', languageProbability: 0.98,
+      vadFilter: true, audioDuration: 10, speechDuration: 7.5
+    })
+    expect(Date.parse(record.finishedAt)).toBeGreaterThanOrEqual(Date.parse(record.startedAt))
+    await flushAutosave()
+    const saved = api.autosaveProject.mock.calls.at(-1)![1]
+    expect(saved.transcription).toEqual(record)
+
+    api.loadProject.mockResolvedValue(saved)
+    await useStore.getState().openMedia()
+    expect(useStore.getState().transcription).toEqual(record)
+    // A project from before the record existed says so instead of guessing.
+    api.loadProject.mockResolvedValue(makeProject())
+    await useStore.getState().openMedia()
+    expect(useStore.getState().transcription).toBeNull()
+  })
+})
+
 describe('English clean-up', () => {
   type SttListener = (event: { type: string; [key: string]: unknown }) => void
   const heard = [

@@ -79,6 +79,29 @@ export interface ProjectFile {
   srtPath: string | null
   /** Only for a video imported from a URL. */
   videoInfo?: VideoInfo
+  /** How the words were recognised; projects from before it was recorded have none. */
+  transcription?: TranscriptionRecord
+}
+
+/** What produced the recognised words, written when 자막 생성 finishes. */
+export interface TranscriptionRecord {
+  engine: 'faster-whisper'
+  engineVersion?: string
+  model: string
+  /** 'cuda' or 'cpu': the device that actually ran, after any GPU fallback. */
+  device: string
+  computeType?: string
+  /** What was asked for: a language code or 'auto'. */
+  language: string
+  detectedLanguage: string
+  languageProbability?: number
+  /** Whether silence was cut out before recognition (Silero VAD). */
+  vadFilter: boolean
+  audioDuration?: number
+  /** What VAD kept as speech; much less than `audioDuration` means a lot was skipped. */
+  speechDuration?: number
+  startedAt: string
+  finishedAt: string
 }
 
 /** What the page of an imported video says about it, as hints for the English clean-up. */
@@ -109,7 +132,12 @@ export type SttEvent =
   | { type: 'progress'; seconds: number; duration: number }
   | { type: 'segment'; words: Word[] }
   | { type: 'reset' }
-  | { type: 'done'; language: string; device: string }
+  | {
+    type: 'done'; language: string; device: string
+    // Details for the project's transcription record; an older worker leaves them out.
+    model?: string; computeType?: string; languageProbability?: number
+    audioDuration?: number; speechDuration?: number | null; vadFilter?: boolean; engineVersion?: string | null
+  }
   | { type: 'error'; message: string }
 
 export interface ExportRequest {
