@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Merge, Trash2 } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { minClipEnd, type Edge } from '../../../shared/edits'
 import { PEAKS_PER_SECOND, type Clip } from '../../../shared/types'
@@ -298,8 +298,14 @@ export const ClipCard = memo(function ClipCard({ clip, index, active, isLast, li
       <footer className="clip-footer">
         <span className="char-count">{clip.text.length}자</span>
         <div className="clip-actions">
-          {!isLast && <button className="quiet" onClick={() => store.merge(index)}>다음과 합치기</button>}
-          <button className="quiet" onClick={() => store.remove(index)}>삭제</button>
+          {!isLast && (
+            <button onClick={() => store.merge(index)} title="다음 자막과 하나로 합치기">
+              <Merge size={13} aria-hidden="true" />다음과 합치기
+            </button>
+          )}
+          <button className="clip-action-danger" onClick={() => store.remove(index)} title="이 자막 삭제">
+            <Trash2 size={13} aria-hidden="true" />삭제
+          </button>
         </div>
       </footer>
     </article>
