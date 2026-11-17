@@ -103,7 +103,7 @@ pub async fn import_video(
     state: State<'_, Shared>,
     url: String,
     target_dir: String,
-) -> Result<String, String> {
+) -> Result<download::ImportedVideo, String> {
     let state = state.inner().clone();
     worker(move || {
         download::import_video(state, &url, Path::new(&target_dir), move |event| {
@@ -278,10 +278,11 @@ pub async fn load_project(
         if !path.exists() {
             return Ok(None);
         }
-        let project = project::read(&path)?;
-        if project.size() != fs::metadata(media_path).map_err(|e| e.to_string())?.len() {
+        let mut project = project::read(&path)?;
+        if project.size() != fs::metadata(&media_path).map_err(|e| e.to_string())?.len() {
             return Err("자동 저장된 프로젝트와 영상 크기가 다릅니다.".into());
         }
+        project::adopt_legacy_info(&path, &mut project, Path::new(&media_path));
         Ok(Some(project))
     })
     .await
@@ -327,6 +328,11 @@ fn open_project_file(
     let media = backend::open_media(state, Some(app), &media_path)?;
     project.validate_media(&media)?;
     state.allow(&path)?;
+    let mut project = project;
+    {
+        let _lock = state.writes.lock().unwrap();
+        project::adopt_legacy_info(&path, &mut project, &media_path);
+    }
     Ok(Some(OpenedProject {
         path: path.to_string_lossy().into_owned(),
         project,

@@ -1,15 +1,16 @@
 import { joinWords } from './segment'
 import { glossaryTerms } from './translate'
-import type { Clip, RefineEdit, RefineRequest, Word } from './types'
+import type { Clip, RefineEdit, RefineRequest, VideoInfo, Word } from './types'
 
 /** Words recognised with less confidence than this are pointed out to the agent. */
 const UNCERTAIN_PROB = 0.5
 
 /** Only the word texts leave the editor, with the positions of the doubtful ones. */
-export function refineRequest(clips: Clip[], mediaPath: string, dictionary: string): RefineRequest {
+export function refineRequest(clips: Clip[], mediaPath: string, dictionary: string, videoInfo: VideoInfo | null = null): RefineRequest {
   const words = clips.flatMap((clip) => clip.words)
   return {
     mediaPath,
+    videoInfo,
     words: words.map((word) => word.text),
     uncertain: words.flatMap((word, index) => (word.prob !== undefined && word.prob < UNCERTAIN_PROB ? [index] : [])),
     glossary: glossaryTerms(dictionary)

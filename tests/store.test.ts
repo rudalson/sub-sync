@@ -58,7 +58,7 @@ afterEach(async () => {
 describe('project editing session', () => {
   it('downloads a URL into the selected directory and opens the video without a file picker', async () => {
     const downloaded = { ...media, path: 'C:\\Downloads\\가져온 영상.mp4' }
-    api.importVideo.mockResolvedValue(downloaded.path)
+    api.importVideo.mockResolvedValue({ path: downloaded.path, info: { title: '가져온 영상', chapters: ['시작'] } })
     api.openMedia.mockResolvedValue(downloaded)
     useStore.getState().setDialog('import')
     expect(await useStore.getState().importVideo(' https://youtu.be/abc123 ', 'C:\\Downloads')).toBe(true)
@@ -71,6 +71,27 @@ describe('project editing session', () => {
     expect(useStore.getState().job).toBeNull()
     expect(useStore.getState().importError).toBeNull()
     expect(api.onImportProgress.mock.results[0].value).toHaveBeenCalledOnce()
+  })
+
+  it('keeps what the video page said in the project, not in a file beside the video', async () => {
+    const downloaded = { ...media, path: 'C:\\Downloads\\가져온 영상.mp4' }
+    const info = { title: 'Learn Pi Agent', description: 'Install from pi.dev', chapters: ['Setup'] }
+    api.importVideo.mockResolvedValue({ path: downloaded.path, info })
+    api.openMedia.mockResolvedValue(downloaded)
+    await useStore.getState().importVideo('https://youtu.be/abc123', 'C:\\Downloads')
+    expect(useStore.getState().videoInfo).toEqual(info)
+    // Written at once, so it survives closing the app before anything is edited.
+    await flushAutosave()
+    const [path, saved] = api.autosaveProject.mock.calls.at(-1)!
+    expect(path).toBe(downloaded.path)
+    expect(saved.videoInfo).toEqual(info)
+
+    api.loadProject.mockResolvedValue(saved)
+    await useStore.getState().openMedia()
+    expect(useStore.getState().videoInfo).toEqual(info)
+    api.loadProject.mockResolvedValue(makeProject())
+    await useStore.getState().openMedia()
+    expect(useStore.getState().videoInfo).toBeNull()
   })
 
   it('shows URL validation and missing-directory errors before starting a download', async () => {
@@ -102,7 +123,7 @@ describe('project editing session', () => {
     await useStore.getState().openMedia()
     const previous = useStore.getState()
     let rejectDownload!: (error: Error) => void
-    api.importVideo.mockImplementation(() => new Promise<string>((_resolve, reject) => { rejectDownload = reject }))
+    api.importVideo.mockImplementation(() => new Promise<never>((_resolve, reject) => { rejectDownload = reject }))
     const pending = useStore.getState().importVideo('https://youtu.be/abc123', 'C:\\Downloads')
     await vi.waitFor(() => expect(api.importVideo).toHaveBeenCalledOnce())
     const progress = api.onImportProgress.mock.calls[0][0]
@@ -126,7 +147,7 @@ describe('project editing session', () => {
   it('keeps the old project when a downloaded file cannot be opened as a video', async () => {
     await useStore.getState().openMedia()
     const previous = useStore.getState()
-    api.importVideo.mockResolvedValue('C:\\Downloads\\broken.mp4')
+    api.importVideo.mockResolvedValue({ path: 'C:\\Downloads\\broken.mp4', info: null })
     api.openMedia.mockRejectedValue(new Error('영상 파일이 아닙니다.'))
     expect(await useStore.getState().importVideo('https://example.com/broken.mp4', 'C:\\Downloads')).toBe(false)
     expect(useStore.getState().media).toBe(previous.media)
@@ -137,7 +158,7 @@ describe('project editing session', () => {
 
   it('delivers an early cancellation as soon as the native download job starts', async () => {
     let rejectDownload!: (error: Error) => void
-    api.importVideo.mockImplementation(() => new Promise<string>((_resolve, reject) => { rejectDownload = reject }))
+    api.importVideo.mockImplementation(() => new Promise<never>((_resolve, reject) => { rejectDownload = reject }))
     const pending = useStore.getState().importVideo('https://youtu.be/abc123', 'C:\\Downloads')
     await vi.waitFor(() => expect(api.importVideo).toHaveBeenCalledOnce())
     useStore.getState().job?.cancel?.()
@@ -727,7 +748,7 @@ describe('English clean-up', () => {
     await useStore.getState().startRefine()
 
     expect(api.startAgentRefine).toHaveBeenCalledExactlyOnceWith({
-      mediaPath: media.path, words: heard.map((w) => w.text), uncertain: [2], glossary: []
+      mediaPath: media.path, videoInfo: null, words: heard.map((w) => w.text), uncertain: [2], glossary: []
     })
     const state = useStore.getState()
     expect(state.job).toBeNull()
@@ -801,7 +822,7 @@ describe('영상 한번에', () => {
   const states = () => useStore.getState().pipeline?.steps.map((step) => [step.key, step.state])
 
   beforeEach(() => {
-    api.importVideo.mockResolvedValue(media.path)
+    api.importVideo.mockResolvedValue({ path: media.path, info: null })
     api.saveSrt.mockImplementation(async (_content, path) => path)
     api.cancelAgentSplit.mockResolvedValue(undefined)
     hearing(heard)
@@ -814,9 +835,12 @@ describe('영상 한번에', () => {
     })
     api.sentenceBoundaries.mockResolvedValue([4, 6])
     api.startAgentTranslate.mockResolvedValue([{ id: 1, text: 'Claude Code 안에서,' }, { id: 2, text: '진행하세요.' }])
+    api.importVideo.mockResolvedValue({ path: media.path, info: { title: 'Claude Code tips' } })
     useStore.getState().setDialog('oneShot')
 
     await useStore.getState().runOneShot('https://youtu.be/abc123', 'C:\\Videos')
+    // The clean-up gets the video page's hints from the import.
+    expect(api.startAgentRefine).toHaveBeenCalledWith(expect.objectContaining({ videoInfo: { title: 'Claude Code tips' } }))
 
     const state = useStore.getState()
     expect(state.dialog).toBeNull()

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::{
     fs,
     io::{Seek, SeekFrom, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{atomic::Ordering, Mutex},
 };
 use tauri::http::Request;
@@ -73,6 +73,47 @@ fn sentence_worker_uses_pysbd_and_returns_word_boundaries_over_utf8_pipes() {
         .is_empty());
     state.cancel_jobs();
     assert!(backend::sentence_boundaries(&state, vec!["Hello.".into()]).is_err());
+}
+#[test]
+fn an_old_info_file_beside_the_video_moves_into_its_project() {
+    let dir = TestDirectory::new();
+    let video = dir.0.join("Talk.mp4");
+    let project_path = project::autosave_path(&video.to_string_lossy());
+    let mut file = fixture();
+    file.media.path = video.to_string_lossy().into_owned();
+    project::write(&project_path, &file).unwrap();
+    let legacy = project::legacy_info_path(&video);
+    assert_eq!(legacy, dir.0.join("Talk.info.json"));
+
+    // Nothing to move: the project stays as it was.
+    let mut opened = project::read(&project_path).unwrap();
+    project::adopt_legacy_info(&project_path, &mut opened, &video);
+    let SavedProject::Current(current) = &opened else {
+        panic!()
+    };
+    assert!(current.video_info.is_none());
+
+    fs::write(
+        &legacy,
+        r#"{"title":"Talk","description":"About pi.dev","tags":null,"chapters":[{"title":"Setup","start_time":0}]}"#,
+    )
+    .unwrap();
+    project::adopt_legacy_info(&project_path, &mut opened, &video);
+    let expected = project::VideoInfo {
+        title: Some("Talk".into()),
+        description: Some("About pi.dev".into()),
+        chapters: vec!["Setup".into()],
+        ..Default::default()
+    };
+    let SavedProject::Current(current) = &opened else {
+        panic!()
+    };
+    assert_eq!(current.video_info.as_ref(), Some(&expected));
+    let SavedProject::Current(saved) = project::read(&project_path).unwrap() else {
+        panic!()
+    };
+    assert_eq!(saved.video_info, Some(expected));
+    assert!(!legacy.exists());
 }
 #[test]
 fn legacy_projects_and_bom_are_supported() {
@@ -516,10 +557,11 @@ fn real_url_import_downloads_to_the_selected_folder_and_opens_without_overwritin
     let state = Arc::new(Backend::new(dir.0.join("data"), dir.0.clone()).unwrap());
     let updates = Arc::new(Mutex::new(Vec::new()));
     let capture = updates.clone();
-    let path = download::import_video(state.clone(), &server.url, &target, move |event| {
+    let imported = download::import_video(state.clone(), &server.url, &target, move |event| {
         capture.lock().unwrap().push(event)
     })
     .unwrap();
+    let path = imported.path;
     assert_eq!(PathBuf::from(&path).file_name().unwrap(), "video.mp4");
     assert_eq!(fs::read(&path).unwrap(), original);
     assert_eq!(
@@ -537,17 +579,16 @@ fn real_url_import_downloads_to_the_selected_folder_and_opens_without_overwritin
     assert_eq!((media.source.width, media.source.height), (160, 90));
     let modified = fs::metadata(&path).unwrap().modified().unwrap();
     assert_eq!(
-        download::import_video(state.clone(), &server.url, &target, |_| {}).unwrap(),
+        download::import_video(state.clone(), &server.url, &target, |_| {})
+            .unwrap()
+            .path,
         path
     );
     assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
     assert_eq!(fs::read(&source).unwrap(), original);
-    // The video and its info for the English clean-up, nothing else.
-    let info: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(download::info_path(Path::new(&path))).unwrap())
-            .unwrap();
-    assert!(info["title"].is_string());
-    assert_eq!(fs::read_dir(&target).unwrap().count(), 2);
+    // The page's info comes back for the project; the folder holds only the video.
+    assert!(imported.info.unwrap().title.is_some());
+    assert_eq!(fs::read_dir(&target).unwrap().count(), 1);
 }
 
 #[test]
@@ -1157,15 +1198,14 @@ fn refine_edits_must_quote_the_words_they_replace() {
 fn refine_prompts_carry_video_hints_and_numbered_words_as_data() {
     let dir = TestDirectory::new();
     let video = dir.0.join("Learn Pi Agent.mp4");
-    let context = refine::video_context(&video);
+    let context = refine::video_context(&video, None);
     assert_eq!(context["title"], "Learn Pi Agent");
     assert!(context["description"].is_null());
-    fs::write(
-        dir.0.join("Learn Pi Agent.info.json"),
-        r#"{"title":"Learn 90% Of Pi Agent","description":"Install from pi.dev","chapters":[{"title":"Setup","start_time":12}],"tags":["pi","agent"]}"#,
-    )
-    .unwrap();
-    let context = refine::video_context(&video);
+    let info = project::VideoInfo::from_ytdlp(&serde_json::json!({
+        "title": "Learn 90% Of Pi Agent", "channel": null, "description": "Install from pi.dev",
+        "chapters": [{ "title": "Setup", "start_time": 12 }], "tags": ["pi", "agent"]
+    }));
+    let context = refine::video_context(&video, info.as_ref());
     assert_eq!(context["title"], "Learn 90% Of Pi Agent");
     assert_eq!(context["chapters"], serde_json::json!(["Setup"]));
     assert_eq!(context["tags"], serde_json::json!(["pi", "agent"]));
@@ -1222,6 +1262,7 @@ print(json.dumps({"event": "result", "result": {"status": "SUCCESS", "response":
     let events = Mutex::new(Vec::new());
     let request = refine::RefineRequest {
         media_path: String::new(),
+        video_info: None,
         words: words.clone(),
         uncertain: vec![],
         glossary: vec![],
@@ -1292,7 +1333,9 @@ fn real_agent_refines_a_project_transcript() {
         .collect();
     let dir = TestDirectory::new();
     let state = Backend::new(dir.0.join("data"), dir.0.clone()).unwrap();
-    let video = refine::video_context(&path);
+    let info: Option<project::VideoInfo> =
+        serde_json::from_value(project["videoInfo"].clone()).unwrap_or_default();
+    let video = refine::video_context(&path, info.as_ref());
     let started = std::time::Instant::now();
     let result = refine::refine_with(
         &state,
@@ -1300,6 +1343,7 @@ fn real_agent_refines_a_project_transcript() {
         &video,
         refine::RefineRequest {
             media_path: String::new(),
+            video_info: None,
             words: texts.clone(),
             uncertain,
             glossary: vec![],

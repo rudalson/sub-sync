@@ -36,7 +36,7 @@ import { closeSubtitleGaps } from '../../shared/timing'
 import { applyTranslations, glossaryTerms, translationCues, translationTarget } from '../../shared/translate'
 import { parseVideoUrl } from '../../shared/videoImport'
 import { pickFace } from '../../shared/fonts'
-import type { Clip, FontFace, MediaInfo, OpenedProject, ProjectFile, ProjectSubtitle, SavedProject, Settings, TranslateCue, Word } from '../../shared/types'
+import type { Clip, FontFace, MediaInfo, OpenedProject, ProjectFile, ProjectSubtitle, SavedProject, Settings, TranslateCue, VideoInfo, Word } from '../../shared/types'
 import { captionFont, loadFonts } from './fonts'
 import { restorePlayback, usePlayback } from './player'
 
@@ -130,6 +130,8 @@ interface State {
   past: Clip[][]
   future: Clip[][]
   srtPath: string | null
+  /** What the page of a video imported from a URL said about it; saved in the project. */
+  videoInfo: VideoInfo | null
   projectPath: string | null
   projectSubtitles: ProjectSubtitle[]
   projectDirty: boolean
@@ -241,6 +243,7 @@ export const useStore = create<State>((set, get) => {
         past: [],
         future: [],
         srtPath: full?.srtPath ?? null,
+        videoInfo: full?.videoInfo ?? null,
         projectPath,
         projectSubtitles: [],
         projectDirty: !projectPath || !full || full.media.path !== media.path || (!full.waveform && peaks !== null),
@@ -368,7 +371,7 @@ export const useStore = create<State>((set, get) => {
     try {
       await flushAutosave()
       if (cancelled) return { end: 'cancelled' }
-      const path = await api.importVideo(checked.url, targetDir)
+      const { path, info } = await api.importVideo(checked.url, targetDir)
       if (cancelled) return { end: 'cancelled' }
       downloading = false
       set({ job: { label: '가져온 영상 준비 중', progress: null } })
@@ -376,6 +379,8 @@ export const useStore = create<State>((set, get) => {
       const project = await api.loadProject(path)
       await flushAutosave()
       await applyProject(media, project, null)
+      // Saved with the project right away, so the clean-up still has it after a restart.
+      if (info) set({ videoInfo: info })
       set({ message: `영상을 가져왔습니다: ${path}` })
       return { end: 'done', detail: baseName(path) }
     } catch (error) {
@@ -390,9 +395,9 @@ export const useStore = create<State>((set, get) => {
 
   /** Runs the agent clean-up as a job and hands back what it proposes, without applying anything. */
   async function requestRefinement(): Promise<StepEnd & { refinement?: Refinement }> {
-    const { media, clips, job, settings, mediaSession } = get()
+    const { media, clips, job, settings, mediaSession, videoInfo } = get()
     if (job || !media) return { end: 'failed', detail: '다른 작업이 진행 중입니다.' }
-    const request = refineRequest(clips, media.path, settings.dictionary)
+    const request = refineRequest(clips, media.path, settings.dictionary, videoInfo)
     if (request.words.length === 0) {
       const detail = '단어 정보가 없어 영어 대사를 다듬을 수 없습니다. 음성 인식을 먼저 실행해 주세요.'
       set({ message: detail })
@@ -476,6 +481,7 @@ export const useStore = create<State>((set, get) => {
     past: [],
     future: [],
     srtPath: null,
+    videoInfo: null,
     projectPath: null,
     projectSubtitles: [],
     projectDirty: false,
@@ -551,6 +557,7 @@ export const useStore = create<State>((set, get) => {
           const playback = usePlayback.getState()
           const dirty = current.clips !== project.clips || current.settings !== project.settings ||
             current.peaks !== state.peaks || current.srtPath !== project.srtPath ||
+            (current.videoInfo ?? undefined) !== project.videoInfo ||
             playback.time !== project.playback.time || playback.rate !== project.playback.rate ||
             current.follow !== project.playback.follow
           if (!dirty) {
@@ -890,7 +897,8 @@ function projectSnapshot(state: State, playback = usePlayback.getState()): Proje
     settings: state.settings,
     peaks: state.peaks,
     playback: { time: playback.time, rate: playback.rate, follow: state.follow },
-    srtPath: state.srtPath
+    srtPath: state.srtPath,
+    videoInfo: state.videoInfo
   })
 }
 
@@ -925,7 +933,7 @@ export async function flushAutosave(): Promise<void> {
 useStore.subscribe((state, previous) => {
   if (restoringProject || state.mediaSession !== previous.mediaSession || !state.media) return
   if (state.clips === previous.clips && state.settings === previous.settings && state.peaks === previous.peaks &&
-    state.follow === previous.follow && state.srtPath === previous.srtPath) return
+    state.follow === previous.follow && state.srtPath === previous.srtPath && state.videoInfo === previous.videoInfo) return
   if (!state.projectDirty) useStore.setState({ projectDirty: true })
   scheduleAutosave(state)
 })

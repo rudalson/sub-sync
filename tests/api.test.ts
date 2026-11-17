@@ -43,8 +43,9 @@ describe('Tauri frontend bridge', () => {
     mocks.invoke.mockResolvedValueOnce('C:\\Downloads')
     expect(await api.pickImportDirectory(null)).toBe('C:\\Downloads')
     expect(mocks.invoke).toHaveBeenLastCalledWith('pick_import_directory', { initial: null })
-    mocks.invoke.mockResolvedValueOnce('C:\\Downloads\\영상.mp4')
-    expect(await api.importVideo('https://youtu.be/abc123', 'C:\\Downloads')).toBe('C:\\Downloads\\영상.mp4')
+    const imported = { path: 'C:\\Downloads\\영상.mp4', info: { title: '영상' } }
+    mocks.invoke.mockResolvedValueOnce(imported)
+    expect(await api.importVideo('https://youtu.be/abc123', 'C:\\Downloads')).toEqual(imported)
     expect(mocks.invoke).toHaveBeenLastCalledWith('import_video', { url: 'https://youtu.be/abc123', targetDir: 'C:\\Downloads' })
     const progress = vi.fn()
     const unsubscribe = api.onImportProgress(progress)
@@ -120,7 +121,7 @@ describe('Tauri frontend bridge', () => {
   })
   it('forwards the English clean-up, its cancel and its progress', async () => {
     await initializeNativeApi()
-    const request = { mediaPath: 'C:\\v\\talk.mp4', words: ['Cloud', 'Code'], uncertain: [0], glossary: [] }
+    const request = { mediaPath: 'C:\\v\\talk.mp4', videoInfo: { title: 'Talk' }, words: ['Cloud', 'Code'], uncertain: [0], glossary: [] }
     const result = { edits: [{ start: 0, end: 2, text: 'Claude Code' }], terms: ['Claude Code'], rejected: 0, failed: 0 }
     mocks.invoke.mockResolvedValueOnce(result)
     expect(await api.startAgentRefine(request)).toEqual(result)

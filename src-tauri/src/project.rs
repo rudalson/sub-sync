@@ -1,5 +1,6 @@
 use crate::files::atomic_write;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     collections::HashSet,
     fs,
@@ -115,6 +116,80 @@ pub struct ProjectFile {
     pub settings: Settings,
     pub playback: Playback,
     pub srt_path: Option<String>,
+    /// Only for a video imported from a URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_info: Option<VideoInfo>,
+}
+/// What the page of an imported video says about it, as hints for the English clean-up.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VideoInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Chapter titles, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chapters: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+}
+/// Trimmed text cut to `limit` characters; nothing when it is empty or not text.
+pub fn clipped(value: &Value, limit: usize) -> Option<String> {
+    value
+        .as_str()
+        .map(|text| text.trim().chars().take(limit).collect::<String>())
+        .filter(|text| !text.is_empty())
+}
+impl VideoInfo {
+    /// yt-dlp's `title`, `channel`, `description`, `tags` and `chapters`, cut to what the clean-up reads.
+    pub fn from_ytdlp(info: &Value) -> Option<Self> {
+        let list = |key: &str, field: Option<&str>, limit: usize| -> Vec<String> {
+            info[key].as_array().map_or_else(Vec::new, |items| {
+                items
+                    .iter()
+                    .filter_map(|item| clipped(field.map_or(item, |field| &item[field]), 200))
+                    .take(limit)
+                    .collect()
+            })
+        };
+        let info = Self {
+            title: clipped(&info["title"], 300),
+            channel: clipped(&info["channel"], 200),
+            description: clipped(&info["description"], 3000),
+            chapters: list("chapters", Some("title"), 80),
+            tags: list("tags", None, 30),
+        };
+        (info != Self::default()).then_some(info)
+    }
+}
+/// Where videos imported before the info moved into the project kept it: `<video stem>.info.json`.
+pub fn legacy_info_path(video: &Path) -> PathBuf {
+    let mut name = video.file_stem().unwrap_or_default().to_os_string();
+    name.push(".info.json");
+    video.with_file_name(name)
+}
+/// Moves a video's old `.info.json` into its project: the file goes only once the project holds it.
+pub fn adopt_legacy_info(project_path: &Path, project: &mut SavedProject, media: &Path) {
+    let SavedProject::Current(current) = project else {
+        return;
+    };
+    if current.video_info.is_some() {
+        return;
+    }
+    let legacy = legacy_info_path(media);
+    let Some(info) = fs::read_to_string(&legacy)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|value| VideoInfo::from_ytdlp(&value))
+    else {
+        return;
+    };
+    current.video_info = Some(info);
+    if write(project_path, current).is_ok() {
+        let _ = fs::remove_file(&legacy);
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

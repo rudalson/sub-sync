@@ -1,6 +1,7 @@
 use crate::{
     backend::{self, Backend, ChildRegistration, Shared},
     files,
+    project::VideoInfo,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -13,6 +14,13 @@ use std::{
     sync::Arc,
     thread,
 };
+
+/// The downloaded video and what its page says about it; the info goes into the project, not a file.
+#[derive(Clone, Debug, Serialize)]
+pub struct ImportedVideo {
+    pub path: String,
+    pub info: Option<VideoInfo>,
+}
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ImportProgress {
@@ -104,7 +112,7 @@ struct Output {
     path: Option<PathBuf>,
     video_id: Option<String>,
     /// Title, channel, description, tags and chapters: hints for the English clean-up agent.
-    info: Option<Value>,
+    info: Option<VideoInfo>,
     errors: VecDeque<String>,
 }
 impl Output {
@@ -112,7 +120,7 @@ impl Output {
         if let Some(info) = line.strip_prefix("sub-sync-info:") {
             if let Some(info) = serde_json::from_str::<Value>(info)
                 .ok()
-                .filter(Value::is_object)
+                .and_then(|info| VideoInfo::from_ytdlp(&info))
             {
                 self.info = Some(info);
             }
@@ -182,13 +190,6 @@ fn same_contents(source: &Path, target: &Path) -> io::Result<bool> {
     }
 }
 
-/// `<video stem>.info.json` beside the video, as yt-dlp names its own info files.
-pub(crate) fn info_path(video: &Path) -> PathBuf {
-    let mut name = video.file_stem().unwrap_or_default().to_os_string();
-    name.push(".info.json");
-    video.with_file_name(name)
-}
-
 /// Remove only the ID appended by our download template; brackets in the actual title survive.
 pub(crate) fn finalize_filename(path: &Path, video_id: Option<&str>) -> io::Result<PathBuf> {
     let title = path
@@ -230,7 +231,7 @@ pub fn import_video(
     url: &str,
     target: &Path,
     progress: impl Fn(ImportProgress) + Send + Sync + 'static,
-) -> Result<String, String> {
+) -> Result<ImportedVideo, String> {
     let url = validate_url(url)?;
     let target = target
         .canonicalize()
@@ -296,12 +297,11 @@ pub fn import_video(
         }
         let path = finalize_filename(&path, video_id.as_deref())
             .map_err(|error| format!("다운로드한 영상의 파일명을 정리할 수 없습니다: {error}"))?;
-        if let Some(info) = output.info.or(errors.info) {
-            // Only a hint for later; a video without it still opens and transcribes.
-            let _ = fs::write(info_path(&path), info.to_string());
-        }
         state.allow(&path)?;
-        Ok(path.to_string_lossy().into_owned())
+        Ok(ImportedVideo {
+            path: path.to_string_lossy().into_owned(),
+            info: output.info.or(errors.info),
+        })
     })();
     backend::finish(&state.download, id);
     result
@@ -425,11 +425,9 @@ mod tests {
             &emit,
         );
         output.line("sub-sync-info:NA", &emit);
-        assert_eq!(output.info.as_ref().unwrap()["title"], "Pi Agent");
+        let info = output.info.as_ref().unwrap();
+        assert_eq!(info.title.as_deref(), Some("Pi Agent"));
+        assert_eq!(info.chapters, ["Setup"]);
         assert!(output.errors.is_empty() && output.path.is_none());
-        assert_eq!(
-            info_path(Path::new(r"C:\영상\Pi Agent (2).mp4")),
-            PathBuf::from(r"C:\영상\Pi Agent (2).info.json")
-        );
     }
 }

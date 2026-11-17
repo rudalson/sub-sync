@@ -5,7 +5,7 @@ import { segmentWords } from './segment'
 import { reconstructSentencesWithPreservation, type SentenceBoundaryOptions } from './sentenceBoundary'
 import { parseSrt } from './srt'
 import { closeSubtitleGaps } from './timing'
-import { PEAKS_PER_SECOND, type Clip, type MediaInfo, type ProjectFile, type Settings, type Word } from './types'
+import { PEAKS_PER_SECOND, type Clip, type MediaInfo, type ProjectFile, type Settings, type VideoInfo, type Word } from './types'
 
 /** Editing steps shared by the desktop editor and the command line, free of any UI or process code. */
 
@@ -61,10 +61,11 @@ export interface ProjectState {
   peaks: Uint8Array | null
   playback: ProjectFile['playback']
   srtPath: string | null
+  videoInfo?: VideoInfo | null
 }
 
 /** The saved project never keeps the generated playback URL. */
-export function buildProject({ media, clips, settings, peaks, playback, srtPath }: ProjectState): ProjectFile {
+export function buildProject({ media, clips, settings, peaks, playback, srtPath, videoInfo }: ProjectState): ProjectFile {
   const { url: _url, ...source } = media
   return {
     format: 'sub-sync', version: 2, media: source,
@@ -72,6 +73,7 @@ export function buildProject({ media, clips, settings, peaks, playback, srtPath 
     waveform: peaks === null ? null : { samplesPerSecond: PEAKS_PER_SECOND, peaks: Array.from(peaks) },
     settings,
     playback,
-    srtPath
+    srtPath,
+    ...(videoInfo ? { videoInfo } : {})
   }
 }

@@ -77,6 +77,23 @@ export interface ProjectFile {
   settings: Settings
   playback: { time: number; rate: number; follow: boolean }
   srtPath: string | null
+  /** Only for a video imported from a URL. */
+  videoInfo?: VideoInfo
+}
+
+/** What the page of an imported video says about it, as hints for the English clean-up. */
+export interface VideoInfo {
+  title?: string
+  channel?: string
+  description?: string
+  /** Chapter titles, in order. */
+  chapters?: string[]
+  tags?: string[]
+}
+
+export interface ImportedVideo {
+  path: string
+  info: VideoInfo | null
 }
 
 export type SavedProject = ProjectFile | LegacyProjectFile
@@ -176,8 +193,9 @@ export interface SentenceSplitResult {
 
 /** The recognised English sent for clean-up: only word texts, never their timing. */
 export interface RefineRequest {
-  /** The open video; title, description and chapters saved beside it go along as hints. */
+  /** The open video; its file name stands in for a title `videoInfo` does not give. */
   mediaPath: string
+  videoInfo: VideoInfo | null
   words: string[]
   /** 0-based indices of words the recogniser was unsure about. */
   uncertain: number[]
@@ -209,7 +227,7 @@ export interface RefineProgress {
 export interface Api {
   pickMedia(): Promise<string | null>
   pickImportDirectory(initial: string | null): Promise<string | null>
-  importVideo(url: string, targetDir: string): Promise<string>
+  importVideo(url: string, targetDir: string): Promise<ImportedVideo>
   cancelImportVideo(): Promise<void>
   onImportProgress(listener: (event: ImportProgress) => void): () => void
   openMedia(path: string): Promise<MediaInfo>

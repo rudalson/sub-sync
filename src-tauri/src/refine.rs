@@ -7,13 +7,12 @@
 //! or that rewrites a long stretch is dropped, so the speech itself can never be rewritten.
 
 use crate::backend::Backend;
-use crate::download;
+use crate::project::{clipped, VideoInfo};
 use crate::translate::{self, AgentJob, Failure, Workspace, ATTEMPTS};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::HashSet,
-    fs,
     ops::Range,
     path::{Path, PathBuf},
     sync::{
@@ -35,8 +34,11 @@ pub const MAX_EDIT_WORDS: usize = 5;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RefineRequest {
-    /// The open video; a `.info.json` beside it adds title, description and chapters.
+    /// The open video; its file name stands in for a title the project does not know.
     pub media_path: String,
+    /// What the video's page said, kept in the project when it was imported from a URL.
+    #[serde(default)]
+    pub video_info: Option<VideoInfo>,
     pub words: Vec<String>,
     /// 0-based indices of words the recogniser was unsure about.
     #[serde(default)]
@@ -106,35 +108,17 @@ const EDIT_RULES: &str = r#"당신은 영어 강의 영상의 자막 교정자�
 입력:
 "#;
 
-fn clipped(value: &Value, limit: usize) -> Option<String> {
-    value
-        .as_str()
-        .map(|text| text.trim().chars().take(limit).collect::<String>())
-        .filter(|text| !text.is_empty())
-}
-
 /// What the overview knows about the video besides its speech; the file name stands in for a title.
-pub fn video_context(media: &Path) -> Value {
-    let info: Value = fs::read_to_string(download::info_path(media))
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or(Value::Null);
-    let titles = |key: &str, field: Option<&str>, limit: usize| {
-        info[key].as_array().map(|items| {
-            items
-                .iter()
-                .filter_map(|item| field.map_or(item, |field| &item[field]).as_str())
-                .take(limit)
-                .collect::<Vec<_>>()
-        })
-    };
+pub fn video_context(media: &Path, info: Option<&VideoInfo>) -> Value {
+    let info = info.cloned().unwrap_or_default();
+    let list = |items: Vec<String>| (!items.is_empty()).then_some(items);
     json!({
-        "title": clipped(&info["title"], 300)
+        "title": info.title
             .unwrap_or_else(|| media.file_stem().unwrap_or_default().to_string_lossy().into_owned()),
-        "channel": clipped(&info["channel"], 200),
-        "description": clipped(&info["description"], 3000),
-        "chapters": titles("chapters", Some("title"), 80),
-        "tags": titles("tags", None, 30),
+        "channel": info.channel,
+        "description": info.description,
+        "chapters": list(info.chapters),
+        "tags": list(info.tags),
     })
 }
 
@@ -282,7 +266,8 @@ pub fn refine(
     let exe = translate::find_agy_executable(state);
     let media = PathBuf::from(&request.media_path);
     state.require_media(&media)?;
-    refine_with(state, &exe, &video_context(&media), request, on_progress)
+    let video = video_context(&media, request.video_info.as_ref());
+    refine_with(state, &exe, &video, request, on_progress)
 }
 
 pub fn refine_with(
