@@ -64,7 +64,7 @@ export function resumableTranslations(cues: TranslateCue[]): number {
   return translationDraft?.key === JSON.stringify(cues) ? translationDraft.done.size : 0
 }
 
-export type DialogName = 'import' | 'oneShot' | 'stt' | 'recut' | 'export' | 'dictionary' | 'sentenceBoundary' | 'agentTranslate' | 'refine' | 'projectInfo'
+export type DialogName = 'import' | 'oneShot' | 'stt' | 'settings' | 'export' | 'sentenceBoundary' | 'agentTranslate' | 'refine' | 'projectInfo'
 
 /** How one step of work ended; `detail` is a short line for the one-shot checklist. */
 export interface StepEnd {

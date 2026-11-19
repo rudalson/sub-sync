@@ -53,6 +53,47 @@ fn electron_project_format_round_trips_without_losing_anchors() {
     );
 }
 #[test]
+fn whisper_models_count_as_downloaded_only_with_their_weights() {
+    let dir = TestDirectory::new();
+    let snapshot = |repo: &str| {
+        let path = dir
+            .0
+            .join(format!("models--{repo}"))
+            .join("snapshots")
+            .join("abc");
+        fs::create_dir_all(&path).unwrap();
+        path
+    };
+    fs::write(
+        snapshot("Systran--faster-whisper-large-v3").join("model.bin"),
+        b"weights",
+    )
+    .unwrap();
+    fs::write(
+        snapshot("mobiuslabsgmbh--faster-whisper-large-v3-turbo").join("model.bin"),
+        b"weights",
+    )
+    .unwrap();
+    // An interrupted download leaves the folder without the weights.
+    fs::write(
+        snapshot("Systran--faster-whisper-small.en").join("config.json"),
+        b"{}",
+    )
+    .unwrap();
+    for (model, downloaded) in [
+        ("large-v3", true),
+        ("large-v3-turbo", true),
+        ("small.en", false),
+        ("base.en", false),
+    ] {
+        assert_eq!(
+            backend::stt_model_downloaded(&dir.0, model),
+            downloaded,
+            "{model}"
+        );
+    }
+}
+#[test]
 fn transcription_record_survives_saving_and_older_projects_have_none() {
     assert!(fixture().transcription.is_none());
     let record = serde_json::json!({

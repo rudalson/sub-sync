@@ -278,6 +278,8 @@ export interface Api {
   saveSettings(settings: Settings): Promise<void>
   startStt(mediaPath: string, options: SttOptions, hotwords: string): Promise<void>
   cancelStt(): Promise<void>
+  /** The Whisper models among `models` already on this computer. */
+  downloadedSttModels(models: string[]): Promise<string[]>
   onSttEvent(listener: (event: SttEvent) => void): () => void
   startExport(request: ExportRequest): Promise<void>
   cancelExport(): Promise<void>

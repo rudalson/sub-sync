@@ -1,4 +1,4 @@
-import { BookOpen, Bot, Captions, Combine, Download, FileUp, FileVideo2, FolderOpen, Info, Redo2, Scissors, Undo2, Upload, WandSparkles, Zap } from 'lucide-react'
+import { Bot, Captions, Combine, Download, FileUp, FileVideo2, FolderOpen, Info, Redo2, Settings, Undo2, Upload, WandSparkles, Zap } from 'lucide-react'
 import englishFlag from '../assets/flags/us.svg'
 import koreanFlag from '../assets/flags/kr.svg'
 import { useStore } from '../store'
@@ -63,6 +63,13 @@ export function Toolbar() {
             onSaveAs={() => void useStore.getState().saveProject(true)}
           />
           <button
+            disabled={busy}
+            onClick={() => useStore.getState().setDialog('settings')}
+            title="음성 인식 모델, 자막 길이, 단어 사전"
+          >
+            <Settings size={16} aria-hidden="true" />설정
+          </button>
+          <button
             disabled={!media || busy}
             onClick={() => useStore.getState().setDialog('projectInfo')}
             title="영상, 음성 인식에 쓴 모델과 설정, 단어 없이 소리만 있는 구간을 봅니다"
@@ -105,12 +112,6 @@ export function Toolbar() {
             title="Antigravity Agent를 사용해 한국어 자막으로 번역합니다"
           >
             <Bot size={16} aria-hidden="true" />Agent 번역
-          </button>
-          <button className="quiet" disabled={!hasClips} onClick={() => useStore.getState().setDialog('recut')}>
-            <Scissors size={16} aria-hidden="true" />자막 길이
-          </button>
-          <button className="quiet" onClick={() => useStore.getState().setDialog('dictionary')}>
-            <BookOpen size={16} aria-hidden="true" />단어 사전
           </button>
         </div>
         <div className="command-group secondary-tools">

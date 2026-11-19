@@ -69,6 +69,7 @@ pub fn run() {
             commands::save_settings,
             commands::start_stt,
             commands::cancel_stt,
+            commands::downloaded_stt_models,
             commands::sentence_boundaries,
             commands::list_fonts,
             commands::start_export,

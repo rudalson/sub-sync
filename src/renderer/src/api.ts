@@ -49,6 +49,7 @@ export const api: Api = {
   saveSettings: (settings) => invoke('save_settings', { settings }),
   startStt: (mediaPath, options, hotwords) => invoke('start_stt', { mediaPath, options, hotwords }),
   cancelStt: () => invoke('cancel_stt'),
+  downloadedSttModels: (models) => invoke('downloaded_stt_models', { models }),
   onSttEvent: (listener) => subscribe(sttListeners, listener),
   startExport: (request) => invoke('start_export', { request }),
   cancelExport: () => invoke('cancel_export'),

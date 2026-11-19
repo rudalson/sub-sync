@@ -470,6 +470,17 @@ pub async fn start_stt(
     let state = state.inner().clone();
     worker(move || backend::start_stt(state, app, media_path, options, hotwords)).await
 }
+/// The Whisper models among `models` that are already downloaded.
+#[tauri::command]
+pub fn downloaded_stt_models(models: Vec<String>) -> Vec<String> {
+    let Some(cache) = backend::huggingface_hub_cache() else {
+        return Vec::new();
+    };
+    models
+        .into_iter()
+        .filter(|model| backend::stt_model_downloaded(&cache, model))
+        .collect()
+}
 #[tauri::command]
 pub fn cancel_stt(state: State<'_, Shared>) {
     backend::cancel(&state.stt);

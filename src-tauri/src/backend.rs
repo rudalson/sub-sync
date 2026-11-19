@@ -569,6 +569,36 @@ pub fn sentence_boundaries(state: &Backend, words: Vec<String>) -> Result<Vec<us
     }
     Ok(ends)
 }
+/// Where huggingface_hub keeps downloads, resolved the way it resolves them.
+pub fn huggingface_hub_cache() -> Option<PathBuf> {
+    let var = |name: &str| {
+        std::env::var_os(name)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
+    var("HF_HUB_CACHE")
+        .or_else(|| var("HF_HOME").map(|home| home.join("hub")))
+        .or_else(|| var("XDG_CACHE_HOME").map(|cache| cache.join("huggingface").join("hub")))
+        .or_else(|| {
+            var(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                .map(|home| home.join(".cache").join("huggingface").join("hub"))
+        })
+}
+/// Whether faster-whisper already has `model` on disk, so choosing it starts without a download.
+pub fn stt_model_downloaded(cache: &Path, model: &str) -> bool {
+    // faster-whisper's own table: the turbo model comes from another publisher.
+    let repo = match model {
+        "large-v3-turbo" | "turbo" => "mobiuslabsgmbh--faster-whisper-large-v3-turbo".to_owned(),
+        _ => format!("Systran--faster-whisper-{model}"),
+    };
+    fs::read_dir(cache.join(format!("models--{repo}")).join("snapshots"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|snapshot| {
+            fs::metadata(snapshot.path().join("model.bin")).is_ok_and(|file| file.len() > 0)
+        })
+}
 pub fn start_stt(
     state: Shared,
     app: AppHandle,

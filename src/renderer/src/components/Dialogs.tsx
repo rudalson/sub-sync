@@ -4,7 +4,7 @@ import {
   AGENT_SPLIT_MAX_WORDS, agentSplitRequest, longSentenceSpans, mergeSplitEnds, reconstructSentencesWithPreservation,
   validateSentenceEnds, type ReconstructedSentence, type UncertaintyReason, type WordSpan
 } from '../../../shared/sentenceBoundary'
-import type { SegmentOptions, Word } from '../../../shared/types'
+import type { Word } from '../../../shared/types'
 import { stripExtension } from '../../../shared/pipeline'
 import { newDictionaryTerms } from '../../../shared/refine'
 import { translationCues, translationTarget } from '../../../shared/translate'
@@ -13,21 +13,8 @@ import { PIPELINE_STEPS, resumableTranslations, useStore } from '../store'
 import { FontPicker } from './FontPicker'
 import { Modal } from './Modal'
 import { ProjectInfoDialog } from './ProjectInfoDialog'
-
-const MODELS = [
-  { id: 'large-v3', label: 'large-v3 (권장, 정확)' },
-  { id: 'large-v3-turbo', label: 'large-v3-turbo (빠름)' },
-  { id: 'medium.en', label: 'medium.en (영어 전용)' },
-  { id: 'small.en', label: 'small.en (영어 전용)' },
-  { id: 'base.en', label: 'base.en (영어 전용, 빠름)' }
-]
-
-const LENGTH_PRESETS = [
-  { label: '짧게', maxChars: 32, maxDuration: 3.5 },
-  { label: '보통', maxChars: 42, maxDuration: 5 },
-  { label: '길게', maxChars: 84, maxDuration: 8 },
-  { label: '문장 단위', maxChars: 160, maxDuration: 15 }
-]
+import { Field, LengthFields, MODELS } from './SettingsFields'
+import { SettingsDialog } from './SettingsDialog'
 
 function Dialog({
   title,
@@ -54,61 +41,6 @@ function Dialog({
     >
       {children}
     </Modal>
-  )
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      {children}
-    </label>
-  )
-}
-
-function LengthFields() {
-  const segment = useStore((state) => state.settings.segment)
-  const updateSettings = useStore((state) => state.updateSettings)
-  const change = (value: Partial<SegmentOptions>) => updateSettings({ segment: { ...segment, ...value } })
-
-  return (
-    <>
-      <div className="field">
-        <span>자막 길이</span>
-        <div className="segmented" role="group" aria-label="자막 길이 프리셋">
-          {LENGTH_PRESETS.map(({ label, ...preset }) => (
-            <button
-              key={label}
-              className={segment.maxChars === preset.maxChars && segment.maxDuration === preset.maxDuration ? 'on' : ''}
-              aria-pressed={segment.maxChars === preset.maxChars && segment.maxDuration === preset.maxDuration}
-              onClick={() => change(preset)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <Field label="자막당 최대 글자 수">
-        <input type="number" min={10} max={500} value={segment.maxChars} onChange={(event) => change({ maxChars: Number(event.target.value) })} />
-      </Field>
-      <Field label="자막당 최대 시간 (초)">
-        <input
-          type="number"
-          min={1}
-          max={60}
-          step={0.5}
-          value={segment.maxDuration}
-          onChange={(event) => change({ maxDuration: Number(event.target.value) })}
-        />
-      </Field>
-      <Field label="이 시간 이상 쉬면 나누기 (초)">
-        <input type="number" min={0.1} max={10} step={0.1} value={segment.maxGap} onChange={(event) => change({ maxGap: Number(event.target.value) })} />
-      </Field>
-      <label className="check">
-        <input type="checkbox" checked={segment.splitOnSentence} onChange={(event) => change({ splitOnSentence: event.target.checked })} />
-        문장이 끝나면 나누기
-      </label>
-    </>
   )
 }
 
@@ -185,7 +117,7 @@ function ImportVideoDialog({ oneShot = false }: { oneShot?: boolean }) {
             <strong>중간에 멈추지 않고 진행합니다</strong>
             <p>
               영어 다듬기의 교정은 검토 없이 모두 적용하고, 문장으로 묶은 뒤에도 긴 문장은 Agent가 나눕니다.
-              단계마다 실행 취소 한 번으로 되돌릴 수 있습니다. 자막 길이와 언어는 자막 생성의 마지막 설정을 쓰며,
+              단계마다 실행 취소 한 번으로 되돌릴 수 있습니다. 자막 길이와 언어는 설정의 값을 쓰며,
               Agent 단계는 Antigravity CLI(agy)의 요금제 쿼터를 사용합니다. 번역은 영상 옆 <code>.ko.srt</code>로 저장됩니다.
             </p>
           </div>
@@ -238,52 +170,6 @@ function SttDialog() {
       </section>
       <section className="settings-group"><h3>자막 나누기</h3><LengthFields /></section>
       <p className="note">모델을 처음 쓸 때는 내려받느라 몇 분 더 걸립니다. 언어 자동 감지나 한국어를 쓰려면 .en이 없는 모델을 고르세요.</p>
-    </Dialog>
-  )
-}
-
-function RecutDialog() {
-  const store = useStore.getState()
-  return (
-    <Dialog
-      title="자막 길이 다시 자르기"
-      description="음성 인식을 다시 하지 않고, 인식된 단어를 기준으로 자막을 다시 나눕니다."
-      onClose={() => store.setDialog(null)}
-      footer={
-        <button className="primary" onClick={() => void store.recut()}>
-          다시 자르기
-        </button>
-      }
-    >
-      <section className="settings-group"><LengthFields /></section>
-    </Dialog>
-  )
-}
-
-function DictionaryDialog() {
-  const dictionary = useStore((state) => state.settings.dictionary)
-  const hasClips = useStore((state) => state.clips.length > 0)
-  const store = useStore.getState()
-  return (
-    <Dialog
-      title="단어 사전"
-      description="자주 쓰는 용어와 인식 결과의 교정 규칙을 등록하세요."
-      onClose={() => store.setDialog(null)}
-      footer={
-        <button className="primary" disabled={!hasClips} onClick={store.applyDictionaryNow}>
-          현재 자막에 적용
-        </button>
-      }
-    >
-      <textarea
-        className="dictionary"
-        aria-label="단어 사전 내용"
-        placeholder={'RESTful\nKubernetes\nrest full => RESTful'}
-        spellCheck={false}
-        value={dictionary}
-        onChange={(event) => store.updateSettings({ dictionary: event.target.value })}
-      />
-      <p className="note">한 줄에 하나씩 적습니다. 단어만 적으면 인식할 때 참고하고, 틀린말 =&gt; 바른말 로 적으면 인식 결과도 바꿉니다.</p>
     </Dialog>
   )
 }
@@ -682,8 +568,7 @@ export function Dialogs() {
   if (dialog === 'oneShot') return <ImportVideoDialog oneShot />
   if (dialog === 'stt') return <SttDialog />
   if (dialog === 'sentenceBoundary') return <SentenceBoundaryDialog />
-  if (dialog === 'recut') return <RecutDialog />
-  if (dialog === 'dictionary') return <DictionaryDialog />
+  if (dialog === 'settings') return <SettingsDialog />
   if (dialog === 'export') return <ExportDialog />
   if (dialog === 'agentTranslate') return <AgentTranslateDialog />
   if (dialog === 'refine') return <RefineDialog />
