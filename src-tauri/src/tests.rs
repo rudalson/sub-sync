@@ -1504,3 +1504,42 @@ fn real_agent_translates_a_few_cues() {
     );
     assert!(!dir.0.join("pwned.txt").exists());
 }
+#[test]
+fn toast_xml_escapes_special_characters_and_splits_body_lines() {
+    let xml = crate::notify::build_toast_xml(
+        "영상 한번에 완료",
+        "Q&A <Demo> \"Live\" '1'\n\n5/5 단계 완료 · 6:18\n세 번째 줄\n네 번째 줄은 생략",
+    );
+    assert_eq!(
+        xml,
+        concat!(
+            r#"<toast><visual><binding template="ToastGeneric">"#,
+            "<text>영상 한번에 완료</text>",
+            "<text>Q&amp;A &lt;Demo&gt; &quot;Live&quot; &apos;1&apos;</text>",
+            "<text>5/5 단계 완료 · 6:18</text>",
+            "<text>세 번째 줄</text>",
+            "</binding></visual></toast>"
+        )
+    );
+}
+#[test]
+fn toast_xml_strips_invalid_control_characters() {
+    let xml = crate::notify::build_toast_xml("완료\u{0000}\u{0007}", "정상\u{001b} 종료");
+    assert_eq!(
+        xml,
+        r#"<toast><visual><binding template="ToastGeneric"><text>완료</text><text>정상 종료</text></binding></visual></toast>"#
+    );
+}
+#[cfg(windows)]
+#[test]
+#[ignore]
+fn real_windows_toast_sends_without_error() {
+    let dir = TestDirectory::new();
+    crate::notify::show_test_toast(
+        &dir.0,
+        "Sub Sync 알림 테스트",
+        "영상 한번에 완료\n5/5 단계 완료 · 6:18",
+    )
+    .unwrap();
+    crate::notify::clear();
+}

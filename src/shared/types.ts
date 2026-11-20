@@ -294,4 +294,6 @@ export interface Api {
   cancelAgentRefine(): Promise<void>
   onRefineProgress(listener: (event: RefineProgress) => void): () => void
   listFonts(): Promise<FontFamily[]>
+  /** Show a desktop notification and flash the taskbar when unfocused. */
+  notify(title: string, body: string): Promise<void>
 }

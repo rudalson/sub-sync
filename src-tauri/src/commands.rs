@@ -562,6 +562,16 @@ pub fn cancel_agent_refine(state: State<'_, Shared>) {
     backend::cancel(&state.translate);
 }
 #[tauri::command]
+pub async fn notify(
+    app: AppHandle,
+    state: State<'_, Shared>,
+    title: String,
+    body: String,
+) -> Result<(), String> {
+    let data_dir = state.data_dir.clone();
+    worker(move || crate::notify::send(&app, &data_dir, &title, &body)).await
+}
+#[tauri::command]
 pub fn close_window(window: WebviewWindow, state: State<'_, Shared>) -> Result<(), String> {
     state.cancel_jobs();
     window.destroy().map_err(|e| e.to_string())

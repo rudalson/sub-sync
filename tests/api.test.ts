@@ -162,6 +162,14 @@ describe('Tauri frontend bridge', () => {
     expect(progress).toHaveBeenCalledWith(event)
     unsubscribe()
   })
+  it('forwards desktop notifications to the native command', async () => {
+    mocks.invoke.mockResolvedValueOnce(undefined)
+    await api.notify('영상 한번에 완료', '원본.mp4\n5/5 단계 완료 · 6:18')
+    expect(mocks.invoke).toHaveBeenLastCalledWith('notify', {
+      title: '영상 한번에 완료',
+      body: '원본.mp4\n5/5 단계 완료 · 6:18'
+    })
+  })
   it('allows the window to close if the editor did not finish starting', async () => {
     await initializeNativeApi()
     const event = { preventDefault: vi.fn() }

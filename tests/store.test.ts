@@ -11,7 +11,8 @@ const api = {
   startAgentRefine: vi.fn(), cancelAgentRefine: vi.fn(), onRefineProgress: vi.fn(),
   sentenceBoundaries: vi.fn(), agentSplitSentences: vi.fn(), cancelAgentSplit: vi.fn(),
   saveSettings: vi.fn(), loadSettings: vi.fn(), onProgress: vi.fn(),
-  startStt: vi.fn(), onSttEvent: vi.fn(), saveSrt: vi.fn(), closeWindow: vi.fn(), confirm: vi.fn()
+  startStt: vi.fn(), onSttEvent: vi.fn(), saveSrt: vi.fn(), closeWindow: vi.fn(), confirm: vi.fn(),
+  notify: vi.fn()
 }
 
 let useStore: typeof import('../src/renderer/src/store').useStore
@@ -46,6 +47,7 @@ beforeEach(() => {
   api.cancelAgentTranslate.mockResolvedValue(undefined)
   api.onRefineProgress.mockReturnValue(vi.fn())
   api.cancelAgentRefine.mockResolvedValue(undefined)
+  api.notify.mockResolvedValue(undefined)
 })
 
 afterEach(async () => {
@@ -901,6 +903,7 @@ describe('영상 한번에', () => {
     expect(state.clips.map((clip) => clip.text)).toEqual(['Claude Code 안에서,', '진행하세요.'])
     expect(state.srtPath).toBe('C:\\Videos\\원본.ko.srt')
     expect(state.past).toHaveLength(4)
+    expect(api.notify).toHaveBeenCalledExactlyOnceWith('영상 한번에 완료', '원본.mp4\n5/5 단계 완료 · 0:00')
 
     useStore.getState().closePipeline()
     expect(useStore.getState().pipeline).toBeNull()
@@ -930,6 +933,10 @@ describe('영상 한번에', () => {
     expect(states()).toEqual([['import', 'failed'], ['transcribe', 'skipped'], ['refine', 'skipped'], ['group', 'skipped'], ['translate', 'skipped']])
     expect(useStore.getState().pipeline?.steps[0].detail).toContain('지원하지 않는 URL')
     expect(api.startStt).not.toHaveBeenCalled()
+    expect(api.notify).toHaveBeenCalledExactlyOnceWith(
+      '영상 한번에 중단됨',
+      expect.stringContaining('영상 가져오기 실패: 지원하지 않는 URL입니다.')
+    )
   })
 
   it('checks the URL and folder in the form before anything starts', async () => {
@@ -949,6 +956,10 @@ describe('영상 한번에', () => {
     expect(useStore.getState().pipeline?.outcome).toBe('done')
     expect(states()).toEqual([['import', 'done'], ['transcribe', 'done'], ['refine', 'failed'], ['group', 'done'], ['translate', 'done']])
     expect(api.startAgentTranslate).toHaveBeenCalledWith(expect.objectContaining({ cues: [{ id: 1, text: heard.map((w) => w.text).join(' ') }] }))
+    expect(api.notify).toHaveBeenCalledExactlyOnceWith(
+      '영상 한번에 완료 (일부 단계 실패)',
+      '원본.mp4\n4/5 단계 완료 (영어 다듬기 실패) · 0:00'
+    )
   })
 
   it('skips the English steps when the talk is not English', async () => {
@@ -973,5 +984,6 @@ describe('영상 한번에', () => {
     expect(states()?.at(-1)).toEqual(['translate', 'cancelled'])
     expect(useStore.getState().job).toBeNull()
     expect(useStore.getState().pipeline).not.toBeNull()
+    expect(api.notify).not.toHaveBeenCalled()
   })
 })

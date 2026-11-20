@@ -3,6 +3,7 @@ mod commands;
 mod download;
 mod files;
 mod fonts;
+mod notify;
 mod project;
 mod refine;
 mod sentence_agent;
@@ -80,6 +81,7 @@ pub fn run() {
             commands::cancel_agent_split,
             commands::start_agent_refine,
             commands::cancel_agent_refine,
+            commands::notify,
             commands::close_window
         ])
         .build(tauri::generate_context!())
@@ -89,6 +91,7 @@ pub fn run() {
             event,
             tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
         ) {
+            notify::clear();
             app.state::<backend::Shared>().cancel_jobs();
         }
     });

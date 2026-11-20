@@ -815,14 +815,19 @@ export const useStore = create<State>((set, get) => {
         update(key, { state: result.end, detail: result.detail, endedAt: Date.now() })
         return result
       }
-      const stop = (outcome: NonNullable<Pipeline['outcome']>) => set((state) => state.pipeline
-        ? {
-            pipeline: {
-              outcome,
-              steps: state.pipeline.steps.map((step) => step.state === 'pending' ? { ...step, state: 'skipped' } : step)
-            }
+      const stop = (outcome: NonNullable<Pipeline['outcome']>) => {
+        let finished: Pipeline | null = null
+        set((state) => {
+          if (!state.pipeline) return {}
+          finished = {
+            outcome,
+            steps: state.pipeline.steps.map((step) => step.state === 'pending' ? { ...step, state: 'skipped' } : step)
           }
-        : {})
+          return { pipeline: finished }
+        })
+        const notice = finished ? pipelineNotification(finished) : null
+        if (notice) void api.notify?.(notice.title, notice.body).catch(() => {})
+      }
       const halted = (result: StepEnd) => result.end === 'cancelled' ? 'cancelled' : 'failed'
 
       const imported = await run('import', () => importFrom(checked.url, targetDir))
@@ -957,3 +962,35 @@ usePlayback.subscribe((playback, previous) => {
     if (!playback.playing || playback.rate !== previous.rate) scheduleAutosave(state)
   } else if (previous.playing && !playback.playing) scheduleAutosave(state)
 })
+
+function formatElapsed(from: number, to: number) {
+  const seconds = Math.max(0, Math.round((to - from) / 1000))
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+/** Desktop notification copy for a finished or halted one-shot run; user cancellations stay quiet. */
+export function pipelineNotification(pipeline: Pipeline): { title: string; body: string } | null {
+  if (!pipeline.outcome || pipeline.outcome === 'cancelled') return null
+  const doneCount = pipeline.steps.filter((step) => step.state === 'done').length
+  const failedSteps = pipeline.steps.filter((step) => step.state === 'failed')
+  const first = pipeline.steps.find((step) => step.startedAt)?.startedAt
+  const last = Math.max(...pipeline.steps.map((step) => step.endedAt ?? 0))
+  const duration = first && last >= first ? formatElapsed(first, last) : null
+  const videoName = pipeline.steps.find((step) => step.key === 'import' && step.state === 'done')?.detail
+
+  const title = pipeline.outcome === 'failed'
+    ? '영상 한번에 중단됨'
+    : failedSteps.length > 0 ? '영상 한번에 완료 (일부 단계 실패)' : '영상 한번에 완료'
+
+  const lines: string[] = []
+  if (videoName) lines.push(videoName)
+  if (pipeline.outcome === 'failed' && failedSteps[0]) {
+    const failed = failedSteps[0]
+    const reason = failed.detail ? `: ${failed.detail}` : ''
+    lines.push(`${failed.label} 실패${reason}${duration ? ` · ${duration}` : ''}`)
+  } else {
+    const failedNote = failedSteps.length > 0 ? ` (${failedSteps.map((step) => step.label).join(', ')} 실패)` : ''
+    lines.push(`${doneCount}/${pipeline.steps.length} 단계 완료${failedNote}${duration ? ` · ${duration}` : ''}`)
+  }
+  return { title, body: lines.join('\n') }
+}

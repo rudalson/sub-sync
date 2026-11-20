@@ -64,6 +64,7 @@ export const api: Api = {
   cancelAgentRefine: () => invoke('cancel_agent_refine'),
   onRefineProgress: (listener) => subscribe(refineListeners, listener),
   listFonts: () => invoke('list_fonts'),
+  notify: (title, body) => invoke('notify', { title, body }),
   onCloseRequested: (listener) => subscribe(closeListeners, listener),
   closeWindow: () => invoke('close_window')
 }
